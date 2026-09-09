@@ -1,0 +1,988 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>JellyShelf Reader</title>
+<style>
+  :root {
+    --bg: #F7F3EC;
+    --fg: #181513;
+    --accent: #8B4FD1;
+    --margin: 28px;
+    --top: 0px;
+    --bottom: 0px;
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: var(--bg); color: var(--fg);
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    font: 15px/1.4 -apple-system, system-ui, sans-serif;
+  }
+  #stage { position: absolute; inset: 0; }
+
+  /* ---------------- EPUB ---------------- */
+  #epub {
+    position: absolute; inset: 0;
+    box-sizing: border-box;
+    /* Safe area + reader chrome are reserved here, not in JS, so the text can
+       never end up under the status bar while epub.js is still starting up. */
+    padding: var(--top) var(--margin) var(--bottom);
+  }
+
+  /* --------- Paged media: PDF + comics --------- */
+  #pages {
+    position: absolute; inset: 0;
+    display: none;
+    overflow-x: auto; overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+  #pages.scroll {
+    overflow-x: hidden; overflow-y: auto;
+    scroll-snap-type: none;
+    white-space: normal;
+  }
+  .page {
+    display: inline-flex;
+    align-items: center; justify-content: center;
+    width: 100vw; height: 100%;
+    scroll-snap-align: center; scroll-snap-stop: always;
+    vertical-align: top;
+    box-sizing: border-box;
+    padding: calc(var(--top) + 8px) 10px calc(var(--bottom) + 8px);
+  }
+  #pages.scroll .page {
+    display: flex; width: 100%; height: auto;
+    padding: 6px 8px;
+  }
+  #pages.zoomed { scroll-snap-type: none; overflow: hidden; }
+  .page canvas, .page img {
+    max-width: 100%; max-height: 100%;
+    transform-origin: center center;
+    will-change: transform;
+    border-radius: 3px;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.16);
+    background: #fff;
+  }
+  .page.dim canvas, .page.dim img { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.92); }
+
+  /* --------------- status --------------- */
+  #status {
+    position: absolute; inset: 0;
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px;
+    text-align: center; padding: 40px;
+    color: var(--fg);
+  }
+  #status.on { display: flex; }
+  .spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--fg) 18%, transparent);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #statusText { opacity: 0.6; font-size: 14px; max-width: 260px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="epub"></div>
+  <div id="pages"></div>
+</div>
+<div id="status" class="on"><div class="spinner"></div><div id="statusText">Opening…</div></div>
+
+<script src="jszip.js"></script>
+<script src="epub.js"></script>
+<script src="pdf.js"></script>
+<script src="unrar.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var RN = window.ReactNativeWebView;
+  function post(msg) { try { RN && RN.postMessage(JSON.stringify(msg)); } catch (e) {} }
+  function fail(message) { setStatus(message, false); post({ type: 'error', message: String(message) }); }
+  function setStatus(text, spinning) {
+    var el = document.getElementById('status');
+    document.getElementById('statusText').textContent = text || '';
+    el.querySelector('.spinner').style.display = spinning === false ? 'none' : '';
+    el.classList.toggle('on', !!text);
+  }
+
+  /* Read a same-origin file:// resource. WKWebView's fetch() refuses file URLs,
+     and file:// XHR reports HTTP status 0 on success, so handle both here. */
+  function readBinary(url) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'arraybuffer';
+      xhr.onload = function () {
+        if ((xhr.status === 200 || xhr.status === 0) && xhr.response) resolve(xhr.response);
+        else reject(new Error('Could not read the book file (' + xhr.status + ').'));
+      };
+      xhr.onerror = function () { reject(new Error('Could not read the book file.')); };
+      xhr.send();
+    });
+  }
+  function readText(url) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.onload = function () { resolve(xhr.responseText); };
+      xhr.onerror = function () { reject(new Error('Could not read ' + url)); };
+      xhr.send();
+    });
+  }
+
+  var state = {
+    kind: null,
+    settings: {},
+    theme: {},
+    book: null,
+    rendition: null,
+    locationsReady: false,
+    pdf: null,
+    comicEntries: [],
+    pageCount: 0,
+    pdfPages: [],
+    pdfPage: 1,
+    pdfScale: 1,
+    rendered: {},
+    lastPercent: 0,
+    lastLocation: null,
+    chapters: [],
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Shared gestures: tap zones + swipe                                  */
+  /* ------------------------------------------------------------------ */
+
+  var TAP_SLOP = 12;
+  var TAP_MS = 400;
+
+  /* Taps arrive from three places: the chapter iframe, the padded container
+     around it (safe-area insets leave a lot of that), and WebKit's synthetic
+     click. Route them all through one handler and de-duplicate by time. */
+  var lastTouchTapAt = 0;
+
+  /** Absolute viewport X, translating out of an iframe's own coordinate space. */
+  function viewportX(event, doc) {
+    var x = event.clientX;
+    try {
+      var frame = doc.defaultView.frameElement;
+      if (frame) x += frame.getBoundingClientRect().left;
+    } catch (e) { /* cross-origin frame: the raw coordinate is the best we have */ }
+    return x;
+  }
+
+  function zoneFor(x) {
+    var w = window.innerWidth;
+    if (x < w * 0.28) return 'left';
+    if (x > w * 0.72) return 'right';
+    return 'center';
+  }
+
+  var lastTapAt = 0;
+
+  function handleTap(x, opts, fromTouch) {
+    // Only suppress the synthetic click WebKit fires after a touch — tapping
+    // the page-turn zone repeatedly must stay as fast as the reader wants.
+    var now = Date.now();
+    if (fromTouch) lastTouchTapAt = now;
+    else if (now - lastTouchTapAt < 700) return;
+
+    // Two listeners seeing the same gesture must still turn only one page;
+    // 80ms is far below a human double-tap but above any bubbling duplicate.
+    if (now - lastTapAt < 80) return;
+    lastTapAt = now;
+
+    var zone = zoneFor(x);
+    if (zone === 'center') { post({ type: 'tap', zone: 'center' }); return; }
+    if (opts && opts.onTurn) opts.onTurn(zone === 'right' ? 1 : -1);
+    post({ type: 'tap', zone: zone });
+  }
+
+  function attachTaps(target, opts) {
+    var doc = target.ownerDocument || target;
+    var startX = 0, startY = 0, startT = 0, moved = false;
+
+    target.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) { moved = true; return; }
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      startT = Date.now();
+      moved = false;
+    }, { passive: true });
+
+    target.addEventListener('touchmove', function (e) {
+      if (!e.touches.length) return;
+      if (Math.abs(e.touches[0].clientX - startX) > TAP_SLOP ||
+          Math.abs(e.touches[0].clientY - startY) > TAP_SLOP) moved = true;
+    }, { passive: true });
+
+    target.addEventListener('touchend', function (e) {
+      if (moved || !startT || Date.now() - startT > TAP_MS) return;
+      if (doc.getSelection && String(doc.getSelection())) return;
+      handleTap(viewportX(e.changedTouches[0], doc), opts, true);
+    }, { passive: true });
+
+    // WebKit inside a sandboxed srcdoc frame doesn't always deliver touchend;
+    // click is the dependable path, and the time guard stops double-handling.
+    target.addEventListener('click', function (e) {
+      if (doc.getSelection && String(doc.getSelection())) return;
+      handleTap(viewportX(e, doc), opts, false);
+    }, false);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* EPUB                                                                */
+  /* ------------------------------------------------------------------ */
+
+  function epubThemeRules() {
+    var s = state.settings, t = state.theme;
+    return {
+      'html, body': { background: t.bg + ' !important' },
+      body: {
+        color: t.fg + ' !important',
+        'font-family': s.fontFamily === 'publisher' ? null : s.fontFamily + ' !important',
+        'font-weight': t.bold ? '600' : null,
+        'line-height': s.lineHeight + ' !important',
+        'text-align': s.justify ? 'justify' : 'start',
+        '-webkit-hyphens': s.justify ? 'auto' : 'manual',
+        hyphens: s.justify ? 'auto' : 'manual',
+        padding: '0 !important',
+      },
+      'p, li, div, span': {
+        'line-height': s.lineHeight + ' !important',
+        'font-weight': t.bold ? '600' : null,
+      },
+      'h1, h2, h3, h4, h5, h6': { color: t.fg + ' !important' },
+      a: { color: t.accent + ' !important', 'text-decoration': 'none' },
+      img: { 'max-width': '100% !important', height: 'auto !important' },
+      '::selection': { background: 'color-mix(in srgb, ' + t.accent + ' 32%, transparent)' },
+    };
+  }
+
+  function applyEpubStyle() {
+    if (!state.rendition) return;
+    var r = state.rendition;
+    r.themes.register('jellyshelf', epubThemeRules());
+    r.themes.select('jellyshelf');
+    r.themes.fontSize(state.settings.fontSize + '%');
+    if (state.settings.fontFamily && state.settings.fontFamily !== 'publisher') {
+      r.themes.font(state.settings.fontFamily);
+    }
+  }
+
+  function bindContents(contents) {
+    var doc = contents.document;
+    attachTaps(doc.documentElement, { onTurn: turn });
+    // Long-press selection needs text selection enabled inside the frame.
+    contents.addStylesheetRules({ 'body': { '-webkit-user-select': 'text', 'user-select': 'text' } });
+  }
+
+  function reportEpubLocation() {
+    var r = state.rendition;
+    if (!r || !r.currentLocation) return;
+    var loc = r.currentLocation();
+    if (!loc || !loc.start) return;
+
+    var cfi = loc.start.cfi;
+    var percent = 0;
+    if (state.locationsReady && state.book.locations && state.book.locations.length()) {
+      percent = state.book.locations.percentageFromCfi(cfi) || 0;
+    } else if (loc.start.percentage) {
+      percent = loc.start.percentage;
+    }
+
+    var chapter = null;
+    try {
+      var nav = state.book.navigation && state.book.navigation.get(loc.start.href);
+      chapter = nav ? nav.label.trim() : null;
+    } catch (e) {}
+
+    state.lastPercent = percent;
+    state.lastLocation = cfi;
+
+    post({
+      type: 'location',
+      percent: percent,
+      location: cfi,
+      chapter: chapter,
+      page: loc.start.displayed ? loc.start.displayed.page : null,
+      pagesInChapter: loc.start.displayed ? loc.start.displayed.total : null,
+      atStart: !!loc.atStart,
+      atEnd: !!loc.atEnd,
+    });
+  }
+
+  function flattenToc(items, depth, out) {
+    (items || []).forEach(function (item) {
+      out.push({ label: (item.label || '').trim(), href: item.href, depth: depth });
+      if (item.subitems && item.subitems.length) flattenToc(item.subitems, depth + 1, out);
+    });
+    return out;
+  }
+
+  async function loadEpub(opts) {
+    var data = await readBinary(opts.url);
+    var book = ePub(data);
+    state.book = book;
+
+    await book.ready;
+
+    var rendition = book.renderTo('epub', {
+      manager: 'continuous',
+      flow: 'paginated',
+      snap: true,
+      width: '100%',
+      height: '100%',
+      spread: 'none',
+      allowScriptedContent: false,
+    });
+    state.rendition = rendition;
+
+    rendition.hooks.content.register(bindContents);
+    rendition.on('relocated', reportEpubLocation);
+    rendition.on('selected', function (cfiRange, contents) {
+      var sel = contents.window.getSelection();
+      var text = sel ? String(sel).trim() : '';
+      if (!text) return;
+      post({ type: 'selection', text: text, location: cfiRange });
+    });
+
+    applyEpubStyle();
+    setMargins();
+
+    await rendition.display(opts.location || undefined);
+    // The container was padded before the manager existed, so take the size again.
+    setMargins();
+
+    state.chapters = flattenToc(book.navigation && book.navigation.toc, 0, []);
+    post({
+      type: 'loaded',
+      kind: 'epub',
+      title: book.packaging.metadata.title,
+      author: book.packaging.metadata.creator,
+      chapters: state.chapters,
+    });
+    setStatus('', true);
+    document.getElementById('status').classList.remove('on');
+
+    // Location generation is the expensive part; reuse the cached map when we have one.
+    (async function () {
+      try {
+        if (opts.locations) {
+          book.locations.load(opts.locations);
+        } else {
+          await book.locations.generate(1024);
+          post({ type: 'locations', data: book.locations.save() });
+        }
+        state.locationsReady = true;
+        post({ type: 'totalLocations', total: book.locations.length() });
+        reportEpubLocation();
+      } catch (e) { /* percentages fall back to per-chapter estimates */ }
+    })();
+  }
+
+  function setMargins() {
+    var root = document.documentElement.style;
+    root.setProperty('--margin', (state.settings.margin || 24) + 'px');
+    root.setProperty('--top', (state.settings.insetTop || 0) + 'px');
+    root.setProperty('--bottom', (state.settings.insetBottom || 0) + 'px');
+    // The manager only exists once epub.js has started; resizing is the part
+    // that has to wait, not the padding itself.
+    if (state.rendition && state.rendition.manager) {
+      try { state.rendition.resize(); } catch (e) {}
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* PDF                                                                 */
+  /* ------------------------------------------------------------------ */
+
+  async function setupPdfWorker() {
+    var src = await readText('pdfworker.js');
+    var blob = new Blob([src], { type: 'text/javascript' });
+    pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+  }
+
+  async function loadPdf(opts) {
+    await setupPdfWorker();
+    var data = await readBinary(opts.url);
+    var doc = await pdfjsLib.getDocument({ data: data, isEvalSupported: false }).promise;
+    state.pdf = doc;
+
+    var container = document.getElementById('pages');
+    container.style.display = 'block';
+    container.innerHTML = '';
+    state.pdfPages = [];
+
+    for (var i = 1; i <= doc.numPages; i++) {
+      var page = document.createElement('div');
+      page.className = 'page';
+      page.dataset.page = String(i);
+      var canvas = document.createElement('canvas');
+      page.appendChild(canvas);
+      container.appendChild(page);
+      state.pdfPages.push(page);
+    }
+
+    applyPdfTheme();
+
+    var start = 1;
+    if (opts.location) start = Math.max(1, Math.min(doc.numPages, parseInt(opts.location, 10) || 1));
+    else if (opts.percent) start = Math.max(1, Math.round(opts.percent * doc.numPages));
+
+    var outline = [];
+    try {
+      var raw = await doc.getOutline();
+      outline = await flattenPdfOutline(doc, raw || [], 0, []);
+    } catch (e) {}
+    state.chapters = outline;
+
+    post({ type: 'loaded', kind: 'pdf', pageCount: doc.numPages, chapters: outline });
+
+    goToPdfPage(start, false);
+    await renderAround(start);
+    setStatus('', true);
+    document.getElementById('status').classList.remove('on');
+
+    container.addEventListener('scroll', onPdfScroll, { passive: true });
+  }
+
+  async function flattenPdfOutline(doc, items, depth, out) {
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var page = null;
+      try {
+        var dest = typeof item.dest === 'string' ? await doc.getDestination(item.dest) : item.dest;
+        if (dest && dest[0]) {
+          var index = await doc.getPageIndex(dest[0]);
+          page = index + 1;
+        }
+      } catch (e) {}
+      out.push({ label: item.title, href: page ? String(page) : null, depth: depth });
+      if (item.items && item.items.length) await flattenPdfOutline(doc, item.items, depth + 1, out);
+    }
+    return out;
+  }
+
+  function applyPdfTheme() {
+    var dim = state.theme.dimPages;
+    state.pdfPages.forEach(function (p) { p.classList.toggle('dim', !!dim); });
+    document.getElementById('pages').classList.toggle('scroll', state.settings.flow === 'scrolled');
+  }
+
+  var renderQueue = {};
+  async function renderPage(n) {
+    if (n < 1 || n > state.pdf.numPages) return;
+    var el = state.pdfPages[n - 1];
+    var key = n + ':' + Math.round(window.innerWidth) + ':' + (state.settings.flow || 'paged');
+    if (state.rendered[n] === key || renderQueue[n]) return;
+    renderQueue[n] = true;
+
+    try {
+      var page = await state.pdf.getPage(n);
+      var canvas = el.querySelector('canvas');
+      var ctx = canvas.getContext('2d', { alpha: false });
+      var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+
+      var base = page.getViewport({ scale: 1 });
+      var availW = el.clientWidth - 20;
+      var availH = state.settings.flow === 'scrolled'
+        ? (availW / base.width) * base.height
+        : el.clientHeight - 16;
+      var scale = Math.min(availW / base.width, availH / base.height);
+      var viewport = page.getViewport({ scale: scale * dpr });
+
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      canvas.style.width = Math.floor(viewport.width / dpr) + 'px';
+      canvas.style.height = Math.floor(viewport.height / dpr) + 'px';
+
+      await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+      state.rendered[n] = key;
+    } catch (e) {
+      // A single unrenderable page shouldn't take the whole book down.
+    } finally {
+      renderQueue[n] = false;
+    }
+  }
+
+  var KEEP_WINDOW = 3;
+
+  async function renderAround(n) {
+    if (state.kind === 'comic') {
+      await renderComicPage(n);
+      renderComicPage(n + 1);
+      renderComicPage(n - 1);
+      renderComicPage(n + 2);
+      // Images are big; hold only a window of them in memory.
+      for (var i = 1; i <= state.pdfPages.length; i++) {
+        if (Math.abs(i - n) > KEEP_WINDOW) releaseComicPage(i);
+      }
+      return;
+    }
+    await renderPage(n);
+    renderPage(n + 1);
+    renderPage(n - 1);
+    renderPage(n + 2);
+  }
+
+  var scrollTimer = null;
+  function onPdfScroll() {
+    if (scrollTimer) return;
+    scrollTimer = setTimeout(function () {
+      scrollTimer = null;
+      var container = document.getElementById('pages');
+      var n;
+      if (state.settings.flow === 'scrolled') {
+        var mid = container.scrollTop + container.clientHeight / 2;
+        n = 1;
+        for (var i = 0; i < state.pdfPages.length; i++) {
+          var p = state.pdfPages[i];
+          if (p.offsetTop <= mid) n = i + 1; else break;
+        }
+      } else {
+        n = Math.round(container.scrollLeft / container.clientWidth) + 1;
+      }
+      var totalPages = state.kind === 'comic' ? state.pageCount : state.pdf.numPages;
+      n = Math.max(1, Math.min(totalPages, n));
+      if (n !== state.pdfPage) {
+        state.pdfPage = n;
+        resetZoom(false);
+        renderAround(n);
+      }
+      reportPdfLocation();
+    }, 90);
+  }
+
+  function reportPdfLocation() {
+    var total = state.kind === 'comic' ? state.pageCount : state.pdf ? state.pdf.numPages : 1;
+    var percent = total > 1 ? (state.pdfPage - 1) / (total - 1) : 1;
+    state.lastPercent = percent;
+    state.lastLocation = String(state.pdfPage);
+    post({
+      type: 'location',
+      percent: percent,
+      location: String(state.pdfPage),
+      page: state.pdfPage,
+      pageCount: total,
+      atStart: state.pdfPage <= 1,
+      atEnd: state.pdfPage >= total,
+    });
+  }
+
+  function goToPdfPage(n, smooth) {
+    var container = document.getElementById('pages');
+    var total = state.kind === 'comic' ? state.pageCount : state.pdf.numPages;
+    n = Math.max(1, Math.min(total, n));
+    state.pdfPage = n;
+    var el = state.pdfPages[n - 1];
+    if (state.settings.flow === 'scrolled') {
+      container.scrollTo({ top: el.offsetTop, behavior: smooth ? 'smooth' : 'auto' });
+    } else {
+      container.scrollTo({ left: (n - 1) * container.clientWidth, behavior: smooth ? 'smooth' : 'auto' });
+    }
+    renderAround(n);
+    reportPdfLocation();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Comics (CBZ)                                                        */
+  /* ------------------------------------------------------------------ */
+
+  /** "page2" must sort before "page10", which a plain string sort gets wrong. */
+  function naturalCompare(a, b) {
+    var re = /(\d+)|(\D+)/g;
+    var ax = String(a).toLowerCase().match(re) || [];
+    var bx = String(b).toLowerCase().match(re) || [];
+    while (ax.length && bx.length) {
+      var an = ax.shift(), bn = bx.shift();
+      var ai = parseInt(an, 10), bi = parseInt(bn, 10);
+      if (!isNaN(ai) && !isNaN(bi)) {
+        if (ai !== bi) return ai - bi;
+      } else if (an !== bn) {
+        return an < bn ? -1 : 1;
+      }
+    }
+    return ax.length - bx.length;
+  }
+
+  var IMAGE_RE = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
+
+  function isComicImage(path) {
+    if (path.indexOf('__MACOSX/') !== -1) return false;      // macOS resource forks
+    if (path.split('/').pop().charAt(0) === '.') return false; // .DS_Store and friends
+    return IMAGE_RE.test(path);
+  }
+
+  function mimeFor(name) {
+    var ext = (name.split('.').pop() || '').toLowerCase();
+    if (ext === 'png') return 'image/png';
+    if (ext === 'gif') return 'image/gif';
+    if (ext === 'webp') return 'image/webp';
+    if (ext === 'avif') return 'image/avif';
+    if (ext === 'bmp') return 'image/bmp';
+    return 'image/jpeg';
+  }
+
+  /** CBZ: a plain ZIP, read with the same JSZip the epub reader uses. */
+  async function zipEntries(data) {
+    var zip = await JSZip.loadAsync(data);
+    var out = [];
+    zip.forEach(function (path, file) {
+      if (file.dir || !isComicImage(path)) return;
+      out.push({
+        name: file.name,
+        read: function () { return file.async('blob'); },
+      });
+    });
+    return out;
+  }
+
+  /** CBR: RAR needs its own decoder; the wasm is loaded lazily, once. */
+  var unrarWasm = null;
+  async function rarEntries(data) {
+    if (typeof UnrarJS === 'undefined') {
+      throw new Error('The comic decoder failed to load.');
+    }
+    if (!unrarWasm) unrarWasm = await readBinary('unrar.wasm');
+
+    var extractor = await UnrarJS.createExtractorFromData({ wasmBinary: unrarWasm, data: data });
+    var list = extractor.getFileList();
+
+    var out = [];
+    var headers = list.fileHeaders;
+    for (var header of headers) {
+      if (header.flags && header.flags.directory) continue;
+      if (!isComicImage(header.name)) continue;
+      (function (name) {
+        out.push({
+          name: name,
+          read: async function () {
+            // Pulling one page at a time keeps memory flat on long volumes.
+            var result = extractor.extract({ files: [name] });
+            var files = [...result.files];
+            if (!files.length || !files[0].extraction) throw new Error('page missing');
+            return new Blob([files[0].extraction], { type: mimeFor(name) });
+          },
+        });
+      })(header.name);
+    }
+    return out;
+  }
+
+  async function loadComic(opts) {
+    var data = await readBinary(opts.url);
+
+    // RAR archives start with "Rar!"; trust the bytes over the file extension.
+    var head = new Uint8Array(data.slice(0, 4));
+    var isRar = head[0] === 0x52 && head[1] === 0x61 && head[2] === 0x72 && head[3] === 0x21;
+
+    var entries = isRar ? await rarEntries(data) : await zipEntries(data);
+
+    entries.sort(function (a, b) { return naturalCompare(a.name, b.name); });
+    if (!entries.length) throw new Error('No images found in this comic archive.');
+
+    // Manga reads right-to-left; reversing the order lets the same paging work.
+    if (state.settings.rtl) entries.reverse();
+    state.comicEntries = entries;
+    state.pageCount = entries.length;
+
+    var container = document.getElementById('pages');
+    container.style.display = 'block';
+    container.innerHTML = '';
+    state.pdfPages = [];
+
+    for (var i = 0; i < entries.length; i++) {
+      var page = document.createElement('div');
+      page.className = 'page';
+      page.dataset.page = String(i + 1);
+      page.appendChild(document.createElement('img'));
+      container.appendChild(page);
+      state.pdfPages.push(page);
+    }
+
+    applyPdfTheme();
+
+    var start = 1;
+    if (opts.location) start = Math.max(1, Math.min(entries.length, parseInt(opts.location, 10) || 1));
+    else if (opts.percent) start = Math.max(1, Math.round(opts.percent * entries.length));
+
+    post({ type: 'loaded', kind: 'comic', pageCount: entries.length, chapters: [] });
+
+    goToPdfPage(start, false);
+    await renderAround(start);
+    setStatus('', true);
+    document.getElementById('status').classList.remove('on');
+
+    container.addEventListener('scroll', onPdfScroll, { passive: true });
+  }
+
+  /** Decoded pages are held only near the reader; the rest are released. */
+  async function renderComicPage(n) {
+    if (n < 1 || n > state.comicEntries.length) return;
+    var el = state.pdfPages[n - 1];
+    if (el.dataset.loaded === '1' || renderQueue[n]) return;
+    renderQueue[n] = true;
+
+    try {
+      var blob = await state.comicEntries[n - 1].read();
+      var url = URL.createObjectURL(blob);
+      var img = el.querySelector('img');
+      img.src = url;
+      el.dataset.loaded = '1';
+      el.dataset.url = url;
+    } catch (e) {
+      // A corrupt page shouldn't take the whole issue down.
+    } finally {
+      renderQueue[n] = false;
+    }
+  }
+
+  function releaseComicPage(n) {
+    if (n < 1 || n > state.pdfPages.length) return;
+    var el = state.pdfPages[n - 1];
+    if (!el || el.dataset.loaded !== '1') return;
+    try { URL.revokeObjectURL(el.dataset.url); } catch (e) {}
+    el.querySelector('img').removeAttribute('src');
+    el.dataset.loaded = '0';
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Pinch zoom (comics + PDF)                                           */
+  /* ------------------------------------------------------------------ */
+
+  var MAX_SCALE = 5;
+  var zoom = { scale: 1, tx: 0, ty: 0 };
+
+  function zoomTarget() {
+    var el = state.pdfPages[state.pdfPage - 1];
+    return el ? el.querySelector('img, canvas') : null;
+  }
+
+  function applyZoom(animate) {
+    var el = zoomTarget();
+    if (!el) return;
+    el.style.transition = animate ? 'transform 180ms ease-out' : '';
+    el.style.transform =
+      'translate(' + zoom.tx + 'px,' + zoom.ty + 'px) scale(' + zoom.scale + ')';
+    document.getElementById('pages').classList.toggle('zoomed', zoom.scale > 1.01);
+  }
+
+  function resetZoom(animate) {
+    var el = zoomTarget();
+    zoom.scale = 1; zoom.tx = 0; zoom.ty = 0;
+    if (el) applyZoom(animate);
+    document.getElementById('pages').classList.remove('zoomed');
+  }
+
+  /** Keep the image overlapping the viewport rather than drifting off-screen. */
+  function clampPan() {
+    var el = zoomTarget();
+    if (!el) return;
+    var rect = el.getBoundingClientRect();
+    var overX = Math.max(0, (rect.width - window.innerWidth) / 2);
+    var overY = Math.max(0, (rect.height - window.innerHeight) / 2);
+    zoom.tx = Math.max(-overX, Math.min(overX, zoom.tx));
+    zoom.ty = Math.max(-overY, Math.min(overY, zoom.ty));
+  }
+
+  function distance(a, b) {
+    var dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function attachZoom(container) {
+    var startDist = 0, startScale = 1, panX = 0, panY = 0, startTx = 0, startTy = 0;
+    var pinching = false, panning = false;
+
+    container.addEventListener('touchstart', function (e) {
+      if (e.touches.length === 2) {
+        pinching = true;
+        panning = false;
+        startDist = distance(e.touches[0], e.touches[1]);
+        startScale = zoom.scale;
+      } else if (e.touches.length === 1 && zoom.scale > 1.01) {
+        panning = true;
+        panX = e.touches[0].clientX;
+        panY = e.touches[0].clientY;
+        startTx = zoom.tx;
+        startTy = zoom.ty;
+      }
+    }, { passive: true });
+
+    container.addEventListener('touchmove', function (e) {
+      if (pinching && e.touches.length === 2) {
+        var d = distance(e.touches[0], e.touches[1]);
+        if (startDist > 0) {
+          zoom.scale = Math.max(1, Math.min(MAX_SCALE, startScale * (d / startDist)));
+          if (zoom.scale <= 1.01) { zoom.tx = 0; zoom.ty = 0; }
+          clampPan();
+          applyZoom(false);
+        }
+        if (e.cancelable) e.preventDefault();
+      } else if (panning && e.touches.length === 1) {
+        zoom.tx = startTx + (e.touches[0].clientX - panX);
+        zoom.ty = startTy + (e.touches[0].clientY - panY);
+        clampPan();
+        applyZoom(false);
+        if (e.cancelable) e.preventDefault();
+      }
+    }, { passive: false });
+
+    container.addEventListener('touchend', function (e) {
+      if (e.touches.length === 0) {
+        // Snap back rather than leaving the page fractionally scaled.
+        if (zoom.scale < 1.05) resetZoom(true);
+        pinching = false;
+        panning = false;
+      }
+    }, { passive: true });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Command surface (called from React Native)                          */
+  /* ------------------------------------------------------------------ */
+
+  function turn(direction) {
+    if (zoom.scale > 1.01) resetZoom(false);
+    if (state.kind === 'epub' && state.rendition) {
+      direction > 0 ? state.rendition.next() : state.rendition.prev();
+    } else if ((state.kind === 'pdf' && state.pdf) || state.kind === 'comic') {
+      goToPdfPage(state.pdfPage + direction, true);
+    }
+  }
+
+  window.JS = {
+    load: function (opts) {
+      state.kind = opts.kind;
+      state.settings = opts.settings || {};
+      state.theme = opts.theme || {};
+      applyRootTheme();
+      setStatus('Opening…', true);
+      var run =
+        opts.kind === 'pdf' ? loadPdf(opts) :
+        opts.kind === 'comic' ? loadComic(opts) :
+        loadEpub(opts);
+      run.catch(function (e) { fail(e && e.message ? e.message : 'This book could not be opened.'); });
+    },
+
+    next: function () { turn(1); },
+    prev: function () { turn(-1); },
+
+    goTo: function (location) {
+      if (state.kind === 'epub' && state.rendition) state.rendition.display(location);
+      else if (state.kind === 'pdf' || state.kind === 'comic') {
+        goToPdfPage(parseInt(location, 10) || 1, false);
+      }
+    },
+
+    goToPercent: function (p) {
+      if (state.kind === 'epub' && state.rendition) {
+        if (state.locationsReady) {
+          var cfi = state.book.locations.cfiFromPercentage(p);
+          if (cfi) state.rendition.display(cfi);
+        }
+      } else if (state.kind === 'pdf' && state.pdf) {
+        goToPdfPage(Math.max(1, Math.round(p * state.pdf.numPages)), false);
+      } else if (state.kind === 'comic') {
+        goToPdfPage(Math.max(1, Math.round(p * state.pageCount)), false);
+      }
+    },
+
+    setSettings: function (settings) {
+      state.settings = Object.assign({}, state.settings, settings);
+      if (state.kind === 'epub') {
+        applyEpubStyle();
+        setMargins();
+      } else if (state.kind === 'pdf' && state.pdf) {
+        state.rendered = {};
+        applyPdfTheme();
+        requestAnimationFrame(function () { goToPdfPage(state.pdfPage, false); });
+      } else if (state.kind === 'comic') {
+        applyPdfTheme();
+        requestAnimationFrame(function () { goToPdfPage(state.pdfPage, false); });
+      }
+    },
+
+    setTheme: function (theme) {
+      state.theme = Object.assign({}, state.theme, theme);
+      applyRootTheme();
+      if (state.kind === 'epub') applyEpubStyle();
+      else applyPdfTheme();
+    },
+
+    highlight: function (id, cfi, color) {
+      if (state.kind !== 'epub' || !state.rendition) return;
+      try {
+        state.rendition.annotations.highlight(cfi, { id: id }, null, 'jf-hl', {
+          fill: color, 'fill-opacity': '0.32', 'mix-blend-mode': 'multiply',
+        });
+      } catch (e) {}
+    },
+
+    unhighlight: function (cfi) {
+      if (state.kind !== 'epub' || !state.rendition) return;
+      try { state.rendition.annotations.remove(cfi, 'highlight'); } catch (e) {}
+    },
+
+    clearSelection: function () {
+      try {
+        if (state.rendition) {
+          state.rendition.getContents().forEach(function (c) {
+            c.window.getSelection().removeAllRanges();
+          });
+        }
+        window.getSelection().removeAllRanges();
+      } catch (e) {}
+    },
+
+    resize: function () {
+      if (state.kind === 'epub' && state.rendition) { try { state.rendition.resize(); } catch (e) {} }
+      else if (state.kind === 'pdf' && state.pdf) {
+        state.rendered = {};
+        goToPdfPage(state.pdfPage, false);
+      } else if (state.kind === 'comic') {
+        // Images scale with CSS; the page just needs re-centring after rotation.
+        goToPdfPage(state.pdfPage, false);
+      }
+    },
+  };
+
+  function applyRootTheme() {
+    var t = state.theme;
+    var root = document.documentElement.style;
+    if (t.bg) root.setProperty('--bg', t.bg);
+    if (t.fg) root.setProperty('--fg', t.fg);
+    if (t.accent) root.setProperty('--accent', t.accent);
+    if (state.settings.insetTop != null) root.setProperty('--top', state.settings.insetTop + 'px');
+    if (state.settings.insetBottom != null) root.setProperty('--bottom', state.settings.insetBottom + 'px');
+  }
+
+  window.addEventListener('error', function (e) {
+    post({ type: 'log', message: 'error: ' + (e.message || 'unknown') });
+  });
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { window.JS.resize(); }, 160);
+  });
+
+  // The container carries the safe-area padding, so taps there must count too.
+  attachTaps(document.documentElement, { onTurn: turn });
+  attachZoom(document.getElementById('pages'));
+
+  post({ type: 'ready' });
+})();
+</script>
+</body>
+</html>

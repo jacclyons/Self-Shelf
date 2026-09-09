@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "JellyShelf",
+    "slug": "jellyshelf",
+    "version": "1.0.0",
+    "orientation": "default",
+    "scheme": "jellyshelf",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "icon": "./assets/images/icon.png",
+    "ios": {
+      "icon": "./assets/images/jellyshelf.icon",
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jacklyons.jellyshelf",
+      "requireFullScreen": false,
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "NSLocalNetworkUsageDescription": "JellyShelf connects to Jellyfin servers on your local network so you can read your own library.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true,
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "EPUB Book",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "org.idpf.epub-container"
+            ]
+          },
+          {
+            "CFBundleTypeName": "PDF Document",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "com.adobe.pdf"
+            ]
+          }
+        ]
+      }
+    },
+    "android": {
+      "package": "com.jacklyons.jellyshelf",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#279677"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F6F1E7",
+          "dark": {
+            "backgroundColor": "#0B0B0D"
+          },
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 120
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
