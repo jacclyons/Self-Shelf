@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>JellyShelf — A native reader for your Jellyfin library</title>
+  <meta name="description" content="JellyShelf is a native iPhone and iPad reader for the books, comics and PDFs on your Jellyfin server. Local-first, offline-ready, and free of tracking.">
+  <meta name="theme-color" content="#F7F3EC" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0C0B0E" media="(prefers-color-scheme: dark)">
+  <meta property="og:title" content="JellyShelf">
+  <meta property="og:description" content="A native reader for the books, comics and PDFs in your Jellyfin library.">
+  <meta property="og:image" content="/site/icon.png">
+  <link rel="icon" href="/site/icon.png">
+  <link rel="apple-touch-icon" href="/site/icon.png">
+  <link rel="stylesheet" href="/site/site.css">
+  <style>
+    /* ---------- Hero ---------- */
+    .hero { padding-block: clamp(48px, 8vw, 96px) clamp(40px, 6vw, 72px); overflow: hidden; }
+    .hero .wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      align-items: center;
+      gap: 48px;
+    }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+    .hero-note { margin: 18px 0 0; font-size: 14px; color: var(--text-3); }
+
+    /* A CSS phone showing the reader, in the Paper theme. */
+    .phone {
+      position: relative;
+      width: min(300px, 100%);
+      aspect-ratio: 300 / 620;
+      margin-inline: auto;
+      padding: 11px;
+      border-radius: 52px;
+      background: #1A1A1C;
+      box-shadow: 0 0 0 1.5px #3A3A3E inset, 0 40px 80px -30px rgba(42, 29, 20, 0.45), 0 12px 24px -12px rgba(42, 29, 20, 0.3);
+      transform: rotate(3deg);
+    }
+    .screen {
+      position: relative;
+      height: 100%;
+      border-radius: 42px;
+      overflow: hidden;
+      background: #F7F3EC;
+      color: #181513;
+      padding: 58px 24px 0;
+      font-family: var(--serif);
+    }
+    .island {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      width: 92px;
+      height: 27px;
+      margin-left: -46px;
+      border-radius: 20px;
+      background: #000;
+    }
+    .running-head {
+      margin: 0 0 22px;
+      text-align: center;
+      font: 11px/1 var(--sans);
+      color: rgba(24, 21, 19, 0.42);
+    }
+    .chapter {
+      margin: 0 0 8px;
+      font: 700 10px/1 var(--sans);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .screen h3 { font: 700 23px/1.12 var(--serif); letter-spacing: -0.01em; }
+    .byline { margin: 6px 0 16px; font-style: italic; font-size: 13px; color: rgba(24, 21, 19, 0.6); }
+    .screen p.body { margin: 0 0 10px; font-size: 12.5px; line-height: 1.55; text-align: justify; hyphens: auto; }
+    .screen p.body:first-of-type::first-line { font-variant: small-caps; letter-spacing: 0.02em; }
+    .progress {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 22px;
+      font: 10px/1 var(--sans);
+      color: rgba(24, 21, 19, 0.42);
+      text-align: center;
+    }
+    .progress .bar {
+      height: 3px;
+      margin-bottom: 9px;
+      border-radius: 3px;
+      background: rgba(24, 21, 19, 0.1);
+      overflow: hidden;
+    }
+    .progress .bar span { display: block; width: 18%; height: 100%; background: var(--gradient); }
+    .fade {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 130px;
+      background: linear-gradient(to bottom, rgba(247, 243, 236, 0), #F7F3EC 55%);
+    }
+
+    /* ---------- Formats strip ---------- */
+    .formats {
+      padding-block: 0;
+    }
+    .formats .wrap {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 10px 28px;
+      padding-block: 26px;
+      border-block: 1px solid var(--hairline);
+      font-size: 15px;
+      color: var(--text-2);
+    }
+    .formats strong {
+      font: 700 15px/1 var(--sans);
+      letter-spacing: 0.06em;
+      color: var(--text);
+    }
+
+    /* ---------- Features ---------- */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .feature {
+      padding: 24px 22px 26px;
+      border-radius: 20px;
+      background: var(--bg-elevated);
+      box-shadow: var(--shadow);
+    }
+    .feature .dot {
+      display: block;
+      width: 34px;
+      height: 4px;
+      margin-bottom: 18px;
+      border-radius: 4px;
+      background: var(--gradient);
+    }
+    .feature h3 { font: 600 18px/1.3 var(--sans); }
+    .feature p { margin: 8px 0 0; font-size: 15px; line-height: 1.5; color: var(--text-2); }
+
+    /* ---------- Themes ---------- */
+    .themes {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .theme figure { margin: 0; }
+    .page {
+      aspect-ratio: 3 / 4;
+      padding: 16% 14%;
+      border-radius: 14px;
+      border: 1px solid var(--hairline);
+      box-shadow: var(--shadow);
+      font-family: var(--serif);
+      overflow: hidden;
+    }
+    .page b { display: block; font-size: clamp(15px, 1.6vw, 20px); line-height: 1.1; margin-bottom: 10px; }
+    .page i { display: block; height: 5px; margin-bottom: 7px; border-radius: 3px; background: currentColor; opacity: 0.22; }
+    .page i:nth-child(3) { width: 92%; }
+    .page i:nth-child(4) { width: 97%; }
+    .page i:nth-child(5) { width: 84%; }
+    .page i:nth-child(6) { width: 62%; }
+    .page .accent { height: 3px; width: 28%; margin-top: 14px; opacity: 1; }
+    .theme figcaption { margin-top: 10px; text-align: center; font-size: 14px; font-weight: 600; }
+    .theme figcaption span { display: block; font-weight: 400; font-size: 12px; color: var(--text-3); }
+
+    /* ---------- Split: offline + local-first ---------- */
+    .split {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .panel {
+      padding: clamp(28px, 4vw, 44px);
+      border-radius: 28px;
+      background: var(--bg-elevated);
+      box-shadow: var(--shadow);
+    }
+    .panel.brand-panel { background: var(--gradient); color: #fff; box-shadow: none; }
+    .panel.brand-panel .eyebrow { color: rgba(255, 255, 255, 0.85); }
+    .panel.brand-panel li { color: rgba(255, 255, 255, 0.92); }
+    .panel.brand-panel li::before { background: #fff; }
+    .panel h2 { font: 700 clamp(26px, 3vw, 32px)/1.15 var(--serif); }
+    .panel ul { list-style: none; margin: 22px 0 0; padding: 0; }
+    .panel li {
+      position: relative;
+      padding-left: 22px;
+      margin-top: 12px;
+      font-size: 16px;
+      color: var(--text-2);
+    }
+    .panel li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.62em;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--tint);
+    }
+    .panel code {
+      font: 14px/1 ui-monospace, "SF Mono", Menlo, monospace;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* ---------- Closing CTA ---------- */
+    .cta { text-align: center; }
+    .cta .lede { margin-inline: auto; }
+    .cta .hero-actions { justify-content: center; }
+    .reqs {
+      display: inline-flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px 12px;
+      margin-top: 28px;
+      padding: 0;
+      list-style: none;
+    }
+    .reqs li {
+      padding: 7px 14px;
+      border-radius: 999px;
+      background: var(--surface-alt);
+      border: 1px solid var(--hairline);
+      font-size: 14px;
+      color: var(--text-2);
+    }
+
+    @media (max-width: 900px) {
+      .hero .wrap { grid-template-columns: 1fr; }
+      .phone { width: min(270px, 80%); transform: rotate(2deg); }
+      .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .themes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .features { grid-template-columns: 1fr; }
+      .hero-actions .btn { flex: 1 1 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/about" aria-label="JellyShelf home">
+      <span class="wordmark" role="img" aria-label="JellyShelf"></span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="/about" aria-current="page" class="hide-sm">About</a>
+      <a href="/support">Support</a>
+      <a class="btn btn-primary" href="/">Open app</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow">For iPhone, iPad and the web</p>
+        <h1 class="display">Your Jellyfin library, <em>made for reading.</em></h1>
+        <p class="lede">
+          JellyShelf is a native reader for the books, comics and PDFs on your own Jellyfin server.
+          It signs in, pulls down your shelf, and gets out of the way so you can read.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="/">Read in your browser</a>
+          <a class="btn btn-quiet" href="/support">Get help setting up</a>
+        </div>
+        <p class="hero-note">The iPhone and iPad app is coming soon to the App Store.</p>
+      </div>
+
+      <div class="phone" aria-hidden="true">
+        <div class="screen">
+          <div class="island"></div>
+          <p class="running-head">Pride and Prejudice</p>
+          <p class="chapter">Chapter 1</p>
+          <h3>Pride and Prejudice</h3>
+          <p class="byline">Jane Austen</p>
+          <p class="body">It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.</p>
+          <p class="body">However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families, that he is considered the rightful property of some one or other of their daughters.</p>
+          <p class="body">“My dear Mr. Bennet,” said his lady to him one day, “have you heard that Netherfield Park is let at last?”</p>
+          <div class="fade"></div>
+          <div class="progress"><div class="bar"><span></span></div>3 pages left in chapter</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="formats">
+    <div class="wrap">
+      <span>Reads</span>
+      <strong>EPUB</strong>
+      <strong>PDF</strong>
+      <strong>CBZ</strong>
+      <strong>CBR</strong>
+      <span>in one reader</span>
+    </div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">What it does</p>
+        <h2 class="h2">Everything you need to read your library. Nothing you don’t.</h2>
+      </div>
+
+      <div class="features">
+        <article class="feature">
+          <span class="dot"></span>
+          <h3>Right where you left off</h3>
+          <p>Keep Reading, Recently Added, Readlist and Finished shelves on the home screen.</p>
+        </article>
+        <article class="feature">
+          <span class="dot"></span>
+          <h3>Syncs with your server</h3>
+          <p>Reading progress, favorites and read status sync both ways with Jellyfin.</p>
+        </article>
+        <article class="feature">
+          <span class="dot"></span>
+          <h3>Type the way you like it</h3>
+          <p>Eleven fonts built into iOS, plus size, spacing, margins, justification and paged or scrolling layout.</p>
+        </article>
+        <article class="feature">
+          <span class="dot"></span>
+          <h3>Ready for manga</h3>
+          <p>Right-to-left reading, and page dimming so scanned pages don’t glare at night.</p>
+        </article>
+        <article class="feature">
+          <span class="dot"></span>
+          <h3>Notes that stay put</h3>
+          <p>Bookmarks, highlights and notes come back on the exact page when you return.</p>
+        </article>
+        <article class="feature">
+          <span class="dot"></span>
+          <h3>Find anything</h3>
+          <p>Search your whole server. Sort and filter by favorites, unread, in progress or downloaded.</p>
+        </article>
+        <article class="feature">
+          <span class="dot"></span>
+          <h3>Easy to navigate</h3>
+          <p>Table of contents, a scrubber with haptic feedback, and pages left in the chapter.</p>
+        </article>
+        <article class="feature">
+          <span class="dot"></span>
+          <h3>Feels like iOS</h3>
+          <p>Liquid Glass on iOS 26, SF Symbols, haptics, and light and dark mode.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top: 0">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Six reading themes</p>
+        <h2 class="h2">A page for every kind of light.</h2>
+        <p>From bright white to a dim Night theme for reading in bed, plus Bold for extra-heavy text.</p>
+      </div>
+
+      <div class="themes">
+        <div class="theme"><figure>
+          <div class="page" style="background:#FFFFFF;color:#16130F"><b>Chapter 1</b><i></i><i></i><i></i><i></i><i class="accent" style="background:#2C8A8D"></i></div>
+          <figcaption>Original</figcaption>
+        </figure></div>
+        <div class="theme"><figure>
+          <div class="page" style="background:#F7F3EC;color:#181513"><b>Chapter 1</b><i></i><i></i><i></i><i></i><i class="accent" style="background:#2C8A8D"></i></div>
+          <figcaption>Paper</figcaption>
+        </figure></div>
+        <div class="theme"><figure>
+          <div class="page" style="background:#F2E3C8;color:#3B2E1E"><b>Chapter 1</b><i></i><i></i><i></i><i></i><i class="accent" style="background:#8A5A25"></i></div>
+          <figcaption>Sepia</figcaption>
+        </figure></div>
+        <div class="theme"><figure>
+          <div class="page" style="background:#FFFFFF;color:#000000"><b style="font-weight:900">Chapter 1</b><i style="opacity:.42"></i><i style="opacity:.42"></i><i style="opacity:.42"></i><i style="opacity:.42"></i><i class="accent" style="background:#2C8A8D"></i></div>
+          <figcaption>Bold</figcaption>
+        </figure></div>
+        <div class="theme"><figure>
+          <div class="page" style="background:#2F2F35;color:#D9D6D1"><b>Chapter 1</b><i></i><i></i><i></i><i></i><i class="accent" style="background:#7FCA83"></i></div>
+          <figcaption>Quiet</figcaption>
+        </figure></div>
+        <div class="theme"><figure>
+          <div class="page" style="background:#0A0A0B;color:#C8C5C0"><b>Chapter 1</b><i></i><i></i><i></i><i></i><i class="accent" style="background:#7FCA83"></i></div>
+          <figcaption>Night</figcaption>
+        </figure></div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top: 0">
+    <div class="wrap split">
+      <div class="panel brand-panel">
+        <p class="eyebrow">Offline</p>
+        <h2>Take your library on a plane.</h2>
+        <ul>
+          <li>Download any book with one tap. You’ll see live progress and the file size.</li>
+          <li>Drop your own EPUBs and PDFs into the JellyShelf folder in the Files app and they appear on your shelf.</li>
+          <li>Titles and authors are read from filenames like <code>Austen, Jane - Emma.epub</code>.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <p class="eyebrow">Private by design</p>
+        <h2>Your reading stays yours.</h2>
+        <ul>
+          <li>No JellyShelf account, no ads, no analytics, no tracking.</li>
+          <li>Your place in each book, bookmarks, highlights and settings are saved on your device, so the app opens instantly.</li>
+          <li>The app only talks to the server you sign into. Progress syncs back whenever that server is reachable.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta" style="padding-top: 0">
+    <div class="wrap">
+      <h2 class="h2">Your shelf is waiting.</h2>
+      <p class="lede">Sign in with your own Jellyfin server and start reading in your browser today.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="/">Open JellyShelf</a>
+        <a class="btn btn-quiet" href="https://github.com/jacclyons/JellyShelf">View on GitHub</a>
+      </div>
+      <ul class="reqs" aria-label="Requirements">
+        <li>A Jellyfin server</li>
+        <li>The Bookshelf plugin</li>
+        <li>iOS 16.4 or later</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p>© 2026 JellyShelf. An independent app, not affiliated with the Jellyfin project.</p>
+    <nav aria-label="Footer">
+      <a href="/about">About</a>
+      <a href="/support">Support</a>
+      <a href="https://github.com/jacclyons/JellyShelf">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

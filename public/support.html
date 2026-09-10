@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>JellyShelf Support</title>
+  <meta name="description" content="Help with setting up JellyShelf, connecting to your Jellyfin server, reading offline, and reporting problems.">
+  <meta name="theme-color" content="#F7F3EC" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0C0B0E" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/site/icon.png">
+  <link rel="apple-touch-icon" href="/site/icon.png">
+  <link rel="stylesheet" href="/site/site.css">
+  <style>
+    .page-head { padding-block: clamp(48px, 7vw, 88px) 8px; }
+
+    .contact {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px 32px;
+      margin-top: 36px;
+      padding: clamp(24px, 3.5vw, 36px);
+      border-radius: 24px;
+      background: var(--gradient);
+      color: #fff;
+    }
+    .contact h2 { font: 700 24px/1.2 var(--serif); }
+    .contact p { margin: 6px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px; }
+    .contact .btn { background: #fff; color: #1E6A6C; }
+    .contact .btn:hover { background: rgba(255, 255, 255, 0.9); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 56px;
+      align-items: start;
+    }
+    .toc {
+      position: sticky;
+      top: 88px;
+      font-size: 15px;
+    }
+    .toc p { margin: 0 0 10px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+    .toc ol { list-style: none; margin: 0; padding: 0; }
+    .toc li { margin: 0 0 8px; }
+    .toc a { color: var(--text-2); }
+    .toc a:hover { color: var(--text); text-decoration: none; }
+
+    .doc section { padding-block: 0 56px; scroll-margin-top: 84px; }
+    .doc h2 { font: 700 30px/1.15 var(--serif); margin-bottom: 18px; }
+    .doc p { margin: 0 0 14px; color: var(--text-2); }
+    .doc strong { color: var(--text); font-weight: 600; }
+
+    .steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+    .steps li {
+      counter-increment: step;
+      position: relative;
+      padding: 18px 20px 18px 64px;
+      margin-bottom: 10px;
+      border-radius: 18px;
+      background: var(--bg-elevated);
+      box-shadow: var(--shadow);
+      color: var(--text-2);
+      font-size: 16px;
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 18px;
+      top: 16px;
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--gradient);
+      color: #fff;
+      font: 700 14px/1 var(--sans);
+    }
+    .steps li > strong:first-child { display: block; margin-bottom: 2px; font-size: 17px; }
+
+    details {
+      border-bottom: 1px solid var(--hairline);
+    }
+    details:first-of-type { border-top: 1px solid var(--hairline); }
+    summary {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 18px 2px;
+      cursor: pointer;
+      list-style: none;
+      font-weight: 600;
+      font-size: 17px;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after {
+      content: "";
+      flex: none;
+      width: 9px;
+      height: 9px;
+      margin-right: 6px;
+      border-right: 2px solid var(--text-3);
+      border-bottom: 2px solid var(--text-3);
+      transform: rotate(45deg) translateY(-3px);
+      transition: transform 0.2s ease;
+    }
+    details[open] summary::after { transform: rotate(-135deg) translateY(-2px); }
+    summary:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; border-radius: 6px; }
+    details .answer { padding: 0 2px 18px; }
+    details .answer p:last-child, details .answer ul:last-child { margin-bottom: 0; }
+    .answer ul { margin: 0 0 14px; padding-left: 20px; color: var(--text-2); }
+    .answer li { margin-bottom: 6px; }
+
+    code {
+      font: 0.88em/1 ui-monospace, "SF Mono", Menlo, monospace;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: var(--surface-alt);
+      border: 1px solid var(--hairline);
+      color: var(--text);
+    }
+
+    .checklist {
+      margin: 0;
+      padding: 22px 24px;
+      border-radius: 18px;
+      background: var(--surface-alt);
+      border: 1px solid var(--hairline);
+      list-style: none;
+      color: var(--text-2);
+      font-size: 16px;
+    }
+    .checklist li { padding-left: 26px; position: relative; margin-bottom: 8px; }
+    .checklist li:last-child { margin-bottom: 0; }
+    .checklist li::before {
+      content: "";
+      position: absolute;
+      left: 2px;
+      top: 0.35em;
+      width: 12px;
+      height: 12px;
+      border-radius: 4px;
+      border: 2px solid var(--tint);
+    }
+
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; gap: 8px; }
+      .toc { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/about" aria-label="JellyShelf home">
+      <span class="wordmark" role="img" aria-label="JellyShelf"></span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="/about" class="hide-sm">About</a>
+      <a href="/support" aria-current="page">Support</a>
+      <a class="btn btn-primary" href="/">Open app</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="page-head">
+    <div class="wrap">
+      <p class="eyebrow">Support</p>
+      <h1 class="display">How can we help?</h1>
+      <p class="lede">Setup guides, answers to common questions, and how to get in touch if something isn’t working.</p>
+
+      <div class="contact">
+        <div>
+          <h2>Still stuck?</h2>
+          <p>Open an issue on GitHub. Every report is read, and bugs get fixed.</p>
+        </div>
+        <a class="btn" href="https://github.com/jacclyons/JellyShelf/issues/new">Contact support</a>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <div class="wrap layout">
+      <aside class="toc" aria-label="On this page">
+        <p>On this page</p>
+        <ol>
+          <li><a href="#getting-started">Getting started</a></li>
+          <li><a href="#connecting">Connecting to your server</a></li>
+          <li><a href="#reading">Reading and syncing</a></li>
+          <li><a href="#offline">Offline and your own files</a></li>
+          <li><a href="#privacy">Privacy</a></li>
+          <li><a href="#report">Reporting a problem</a></li>
+        </ol>
+      </aside>
+
+      <div class="doc">
+        <section id="getting-started">
+          <h2>Getting started</h2>
+          <ol class="steps">
+            <li><strong>Install the Bookshelf plugin</strong>In the Jellyfin dashboard, go to Plugins → Catalog, install <strong>Bookshelf</strong>, then restart your server.</li>
+            <li><strong>Add a books library</strong>Go to Dashboard → Libraries and add a library with the content type <strong>Books</strong> that points at your EPUB, PDF, CBZ and CBR files. Let the scan finish.</li>
+            <li><strong>Sign in to JellyShelf</strong>Enter your server address, like <code>jellyfin.home.lan:8096</code>, then your username and password. You can also use Quick Connect.</li>
+            <li><strong>Start reading</strong>Your shelves fill in right away. Tap a book to open it, or download it to read offline.</li>
+          </ol>
+        </section>
+
+        <section id="connecting">
+          <h2>Connecting to your server</h2>
+
+          <details>
+            <summary>JellyShelf can’t find my server</summary>
+            <div class="answer">
+              <ul>
+                <li>Use the same address you use to open Jellyfin in a browser, including the port (the default is <code>8096</code>).</li>
+                <li>If your server uses a custom port or HTTPS, include <code>http://</code> or <code>https://</code> at the start.</li>
+                <li>A local address like <code>192.168.1.20:8096</code> only works on the same Wi‑Fi network as your server. Away from home, use your server’s public or VPN address.</li>
+                <li>On iPhone and iPad, make sure JellyShelf is allowed to reach your network: Settings → Privacy &amp; Security → Local Network → JellyShelf.</li>
+              </ul>
+              <p>Pasting your Jellyfin web address (ending in <code>/web</code>) is fine. JellyShelf removes that part for you.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>The web version says my server is blocked</summary>
+            <div class="answer">
+              <p>The web version is served over HTTPS, and browsers won’t let an HTTPS page talk to a server on plain <code>http://</code>. Use your server’s <code>https://</code> address, for example through a reverse proxy. The iPhone and iPad app doesn’t have this restriction.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>How do I sign in with Quick Connect?</summary>
+            <div class="answer">
+              <p>First turn on Quick Connect in your Jellyfin dashboard under Dashboard → General. Then choose Quick Connect on the JellyShelf sign-in screen. You’ll get a short code. Enter it in Jellyfin on a device where you’re already signed in (under your profile → Quick Connect), and JellyShelf signs in automatically.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>I signed in, but my books aren’t showing up</summary>
+            <div class="answer">
+              <ul>
+                <li>Check that the <strong>Bookshelf</strong> plugin is installed and that your server was restarted afterward.</li>
+                <li>Make sure the library’s content type is set to <strong>Books</strong>, then run a library scan.</li>
+                <li>Check that your Jellyfin user has access to that library under Dashboard → Users → Library Access.</li>
+              </ul>
+            </div>
+          </details>
+        </section>
+
+        <section id="reading">
+          <h2>Reading and syncing</h2>
+
+          <details>
+            <summary>Which file formats are supported?</summary>
+            <div class="answer">
+              <p>EPUB, PDF, CBZ and CBR. For manga, switch the reading direction to <strong>Right to Left</strong> in the reader’s appearance settings.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>What syncs with Jellyfin?</summary>
+            <div class="answer">
+              <p>Your <strong>reading progress</strong>, <strong>favorites</strong> and <strong>read status</strong> sync with your server, so they carry over to other Jellyfin apps. If you read offline, your progress is sent up the next time your server is reachable.</p>
+              <p><strong>Bookmarks, highlights, notes</strong> and your <strong>type settings</strong> are stored only on the device you made them on.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>How do I change the font, size or theme?</summary>
+            <div class="answer">
+              <p>While reading, tap the middle of the page to show the controls, then open the appearance menu. You can pick one of six themes (Original, Paper, Sepia, Bold, Quiet and Night), one of eleven fonts, the text size, line spacing, margins, justification, and paged or scrolling layout.</p>
+            </div>
+          </details>
+        </section>
+
+        <section id="offline">
+          <h2>Offline and your own files</h2>
+
+          <details>
+            <summary>How do I read without an internet connection?</summary>
+            <div class="answer">
+              <p>Open a book and tap Download. You’ll see its progress and file size. Downloaded books open without a connection, and you can find them all with the <strong>Downloaded</strong> filter in your library.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Can I add books that aren’t on my server?</summary>
+            <div class="answer">
+              <p>Yes. On iPhone or iPad, open the <strong>Files</strong> app and go to On My iPhone (or On My iPad) → <strong>JellyShelf</strong>. Put EPUB or PDF files there and they’ll appear on your shelf.</p>
+              <p>Name files like <code>Austen, Jane - Emma.epub</code> and JellyShelf will fill in the title and author for you. To add a cover and details, press and hold the book and choose <strong>Find Metadata…</strong></p>
+            </div>
+          </details>
+        </section>
+
+        <section id="privacy">
+          <h2>Privacy</h2>
+
+          <details open>
+            <summary>What data does JellyShelf collect?</summary>
+            <div class="answer">
+              <p><strong>None.</strong> JellyShelf has no accounts of its own, no ads, no analytics and no tracking. We don’t run a server that sees your data.</p>
+              <ul>
+                <li>The app connects directly to the Jellyfin server you sign into. Your sign-in token is stored in the device’s secure keychain.</li>
+                <li>Reading positions, bookmarks, highlights, notes, downloads and settings are stored on your device.</li>
+                <li>If you choose to look up details for a book you added yourself, the search text is sent to Open Library, then to Google Books if Open Library has no match. Nothing else is shared.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details>
+            <summary>How do I delete my data?</summary>
+            <div class="answer">
+              <p>Signing out in Settings removes downloads and reading positions from your device. Deleting the app removes everything else. Anything synced to your Jellyfin server is under your control there.</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Is JellyShelf made by Jellyfin?</summary>
+            <div class="answer">
+              <p>No. JellyShelf is an independent app and isn’t affiliated with or endorsed by the Jellyfin project. It uses Jellyfin’s public API to read the library you already have.</p>
+            </div>
+          </details>
+        </section>
+
+        <section id="report">
+          <h2>Reporting a problem</h2>
+          <p>The quickest way to get something fixed is to <a href="https://github.com/jacclyons/JellyShelf/issues/new">open an issue on GitHub</a>. It helps a lot if you include:</p>
+          <ul class="checklist">
+            <li>Your JellyShelf version (Settings → JellyShelf)</li>
+            <li>Your device and iOS version, or your browser if you’re using the web version</li>
+            <li>Your Jellyfin server version and Bookshelf plugin version</li>
+            <li>The file format (EPUB, PDF, CBZ or CBR), and whether it happens with every book or just one</li>
+            <li>What you expected to happen and what happened instead, with a screenshot if you can</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p>© 2026 JellyShelf. An independent app, not affiliated with the Jellyfin project.</p>
+    <nav aria-label="Footer">
+      <a href="/about">About</a>
+      <a href="/support">Support</a>
+      <a href="https://github.com/jacclyons/JellyShelf">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

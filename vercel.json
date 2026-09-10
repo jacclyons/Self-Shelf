@@ -3,7 +3,11 @@
   "framework": null,
   "buildCommand": "npm run export:web",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    { "source": "/about", "destination": "/about.html" },
+    { "source": "/support", "destination": "/support.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/_expo/static/(.*)",

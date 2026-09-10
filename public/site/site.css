@@ -1,0 +1,194 @@
+/* Shared styles for the static marketing pages (/about, /support).
+   Palette mirrors src/ui/theme.ts so the site and the app read as one thing. */
+
+:root {
+  --bg: #F7F3EC;
+  --bg-elevated: #FFFFFF;
+  --surface-alt: rgba(28, 22, 16, 0.045);
+  --text: #181513;
+  --text-2: rgba(24, 21, 19, 0.62);
+  --text-3: rgba(24, 21, 19, 0.4);
+  --tint: #2C8A8D;
+  --tint-soft: rgba(44, 138, 141, 0.12);
+  --hairline: rgba(24, 21, 19, 0.12);
+  --green: #7FCA83;
+  --teal: #2C8A8D;
+  --gradient: linear-gradient(120deg, var(--green), var(--teal));
+  --shadow: 0 1px 2px rgba(42, 29, 20, 0.06), 0 12px 32px -12px rgba(42, 29, 20, 0.18);
+  --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0C0B0E;
+    --bg-elevated: #161519;
+    --surface-alt: rgba(255, 255, 255, 0.06);
+    --text: #F4F1EC;
+    --text-2: rgba(244, 241, 236, 0.64);
+    --text-3: rgba(244, 241, 236, 0.4);
+    --tint: #7FCA83;
+    --tint-soft: rgba(127, 202, 131, 0.14);
+    --hairline: rgba(255, 255, 255, 0.12);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -16px rgba(0, 0, 0, 0.7);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--tint); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-inline: 20px;
+}
+
+/* ---------- Header ---------- */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+  backdrop-filter: saturate(180%) blur(18px);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.site-header .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 60px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand:hover { text-decoration: none; }
+.brand img { width: 30px; height: 30px; border-radius: 7px; }
+
+/* The wordmark SVG is used as a mask so it can take any colour or gradient. */
+.wordmark {
+  display: block;
+  aspect-ratio: 9236 / 1930;
+  background: var(--text);
+  -webkit-mask: url(/site/wordmark.svg) center / contain no-repeat;
+  mask: url(/site/wordmark.svg) center / contain no-repeat;
+}
+.brand .wordmark { height: 20px; }
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  font-size: 15px;
+}
+.nav a { color: var(--text-2); }
+.nav a:hover { color: var(--text); text-decoration: none; }
+.nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font: 600 16px/1 var(--sans);
+  white-space: nowrap;
+}
+.btn:hover { text-decoration: none; }
+.btn-primary { background: var(--teal); color: #fff; }
+.btn-primary:hover { background: #267A7D; }
+.btn-quiet {
+  background: var(--surface-alt);
+  color: var(--text);
+  border: 1px solid var(--hairline);
+}
+.nav .btn { min-height: 36px; padding: 0 16px; font-size: 14px; color: #fff; }
+
+/* ---------- Type ---------- */
+
+h1, h2, h3 { margin: 0; letter-spacing: -0.015em; }
+
+.display {
+  font: 700 clamp(40px, 6.4vw, 68px)/1.04 var(--serif);
+  letter-spacing: -0.025em;
+}
+.display em {
+  font-style: normal;
+  background: var(--gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.h2 {
+  font: 700 clamp(30px, 4vw, 42px)/1.12 var(--serif);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tint);
+}
+
+.lede {
+  margin: 20px 0 0;
+  font-size: clamp(18px, 2vw, 21px);
+  line-height: 1.5;
+  color: var(--text-2);
+  max-width: 34em;
+}
+
+.muted { color: var(--text-2); }
+
+section { padding-block: clamp(56px, 9vw, 104px); }
+.section-head { max-width: 40em; margin-bottom: 40px; }
+.section-head p { margin: 14px 0 0; color: var(--text-2); font-size: 18px; }
+
+/* ---------- Footer ---------- */
+
+.site-footer {
+  border-top: 1px solid var(--hairline);
+  padding-block: 36px 48px;
+  font-size: 14px;
+  color: var(--text-3);
+}
+.site-footer .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px 32px;
+}
+.site-footer nav { display: flex; flex-wrap: wrap; gap: 20px; }
+.site-footer a { color: var(--text-2); }
+.site-footer p { margin: 0; max-width: 36em; }
+
+@media (max-width: 640px) {
+  .nav .hide-sm { display: none; }
+  .nav { gap: 16px; }
+}
