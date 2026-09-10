@@ -16,6 +16,7 @@ import type { SymbolViewProps } from 'expo-symbols';
 
 import { useDismissTo } from '@/lib/navigation';
 import { markOnboardingSeen } from '@/lib/onboarding';
+import { FixedScheme } from '@/state/appearance';
 import { useAuth } from '@/state/auth';
 import { Icon } from '@/ui/Bits';
 import { Press } from '@/ui/Press';
@@ -53,7 +54,16 @@ const PAGES: Page[] = [
   },
 ];
 
+/** Always light, whatever the Appearance setting; `_layout` matches the chrome. */
 export default function Welcome() {
+  return (
+    <FixedScheme scheme="light">
+      <Walkthrough />
+    </FixedScheme>
+  );
+}
+
+function Walkthrough() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -67,6 +77,10 @@ export default function Welcome() {
 
   const scroller = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
+  // Pages in a horizontal scroller are only as tall as their content, so
+  // centring inside one did nothing and the copy sat at the top of the screen.
+  // Each page takes the scroller's measured height instead.
+  const [pageHeight, setPageHeight] = useState<number>();
   const last = index === PAGES.length - 1;
 
   const finish = useCallback(() => {
@@ -107,12 +121,19 @@ export default function Welcome() {
         onScroll={onScrollEnd}
         scrollEventThrottle={16}
         onMomentumScrollEnd={onScrollEnd}
+        onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
         style={{ flex: 1 }}
       >
         {PAGES.map((page) => (
           <View
             key={page.title}
-            style={{ width, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}
+            style={{
+              width,
+              height: pageHeight,
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: 32,
+            }}
           >
             <View style={[readingColumn, { alignItems: 'center' }]}>
             {page.mark ? (

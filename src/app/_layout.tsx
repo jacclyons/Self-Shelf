@@ -12,9 +12,12 @@ import { installWebChrome } from '@/lib/webChrome';
 import { AppearanceProvider, useAppearance } from '@/state/appearance';
 import { AuthProvider, useAuth } from '@/state/auth';
 import { initDatabase } from '@/state/db';
-import { useTheme } from '@/ui/theme';
+import { palettes, useTheme } from '@/ui/theme';
 
 SplashScreen.preventAutoHideAsync();
+
+/** Behind the always-light screens, so a fade in or out never shows the dark ground. */
+const lightScreen = { backgroundColor: palettes.light.bg };
 installWebChrome();
 
 const queryClient = new QueryClient({
@@ -34,10 +37,17 @@ function RootNavigator() {
   const theme = useTheme();
   const { choice, scheme } = useAppearance();
 
+  // Sign-in and the first-run walkthrough are always light (see `FixedScheme`),
+  // so while one of them fills the screen the status bar and native chrome match
+  // it. A walkthrough replayed from Settings opens over the signed-in app, so it
+  // leaves the chrome alone rather than flipping what is underneath.
+  const lightOnly = segments[0] === 'sign-in' || (segments[0] === 'welcome' && !session);
+  const chromeScheme = lightOnly ? 'light' : scheme;
+
   // Keep the surfaces React does not own in step with the chosen appearance.
   useEffect(() => {
-    applyAppChrome(scheme, theme.bg, choice);
-  }, [scheme, theme.bg, choice]);
+    applyAppChrome(chromeScheme, palettes[chromeScheme].bg, lightOnly ? 'light' : choice);
+  }, [chromeScheme, lightOnly, choice]);
 
   useEffect(() => {
     if (restoring) return;
@@ -62,7 +72,7 @@ function RootNavigator() {
 
   return (
     <>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      <StatusBar style={chromeScheme === 'dark' ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -70,8 +80,11 @@ function RootNavigator() {
         }}
       >
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="welcome" options={{ animation: 'fade', gestureEnabled: false }} />
-        <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+        <Stack.Screen
+          name="welcome"
+          options={{ animation: 'fade', gestureEnabled: false, contentStyle: lightScreen }}
+        />
+        <Stack.Screen name="sign-in" options={{ animation: 'fade', contentStyle: lightScreen }} />
         <Stack.Screen
           name="book/[id]"
           options={{ presentation: 'modal', sheetGrabberVisible: true }}

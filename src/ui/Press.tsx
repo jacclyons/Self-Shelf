@@ -1,11 +1,19 @@
 import * as Haptics from 'expo-haptics';
 import type { ReactNode } from 'react';
-import { Platform, Pressable, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  type PressableProps,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-interface PressProps {
+/** The accessibility props matter where the content says nothing, e.g. a colour swatch. */
+interface PressProps
+  extends Pick<PressableProps, 'role' | 'aria-label' | 'aria-checked'> {
   children: ReactNode;
   onPress?: () => void;
   onLongPress?: () => void;
@@ -26,6 +34,7 @@ export function Press({
   haptic = 'light',
   disabled,
   hitSlop,
+  ...accessibility
 }: PressProps) {
   const pressed = useSharedValue(0);
   // A pointer expects something to happen before it commits to a click.
@@ -43,6 +52,7 @@ export function Press({
 
   return (
     <AnimatedPressable
+      {...accessibility}
       disabled={disabled}
       hitSlop={hitSlop}
       onHoverIn={Platform.OS === 'web' ? () => { hovered.value = 1; } : undefined}

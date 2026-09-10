@@ -201,8 +201,8 @@ export default function BookDetail() {
                   gap: 8,
                 }}
               >
-                <Icon name="book.fill" size={16} color="#fff" />
-                <Text style={[type_.headline, { color: '#fff' }]}>
+                <Icon name="book.fill" size={16} color={theme.onTint} />
+                <Text style={[type_.headline, { color: theme.onTint }]}>
                   {percent > 0.001 ? 'Continue Reading' : 'Read'}
                 </Text>
               </View>

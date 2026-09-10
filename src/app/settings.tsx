@@ -13,6 +13,8 @@ import { useAuth } from '@/state/auth';
 import { listDownloads, wipeLocalData } from '@/state/db';
 import { Icon } from '@/ui/Bits';
 import { CloseButton } from '@/ui/CloseButton';
+import { ACCENTS, CUSTOM_ACCENT_ID, textOn } from '@/ui/accents';
+import { ColorWell, colorWellAvailable } from '@/ui/ColorWell';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
 import { radius, readingColumn, type as type_, useTheme } from '@/ui/theme';
@@ -77,6 +79,7 @@ export default function Settings() {
 
       <Section title="Appearance">
         <AppearanceControl />
+        <AccentControl />
       </Section>
 
       <Section title="Storage">
@@ -205,12 +208,12 @@ function AppearanceControl() {
               <Icon
                 name={option.icon}
                 size={17}
-                color={selected ? '#FFFFFF' : theme.textSecondary}
+                color={selected ? theme.onTint : theme.textSecondary}
               />
               <Text
                 style={[
                   type_.footnote,
-                  { fontWeight: '600', color: selected ? '#FFFFFF' : theme.textSecondary },
+                  { fontWeight: '600', color: selected ? theme.onTint : theme.textSecondary },
                 ]}
               >
                 {option.label}
@@ -219,6 +222,98 @@ function AppearanceControl() {
           </Press>
         );
       })}
+    </View>
+  );
+}
+
+/**
+ * The accent swatches, then a colour well for any colour at all (iOS and web).
+ * Each swatch shows the shade it would paint in the current scheme, so what
+ * you pick is what you get.
+ */
+function AccentControl() {
+  const theme = useTheme();
+  const { accent, setAccent, customColor, setCustomColor } = useAppearance();
+  const custom = accent.id === CUSTOM_ACCENT_ID;
+
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 11 }}>
+        <Icon name="paintpalette" size={17} color={theme.textSecondary} />
+        <Text style={[type_.callout, { color: theme.text, flex: 1 }]}>Accent</Text>
+        <Text style={[type_.footnote, { color: theme.textTertiary }]}>{accent.name}</Text>
+      </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+        {ACCENTS.map((option) => {
+          const selected = option.id === accent.id;
+          const color = option[theme.scheme];
+          return (
+            <Press
+              key={option.id}
+              haptic="selection"
+              scaleTo={0.9}
+              onPress={() => setAccent(option.id)}
+              role="radio"
+              aria-label={option.name}
+              aria-checked={selected}
+            >
+              <SwatchRing selected={selected} color={color}>
+                <View
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: color,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {selected ? (
+                    <Icon name="checkmark" size={12} color={textOn(color)} weight="bold" />
+                  ) : null}
+                </View>
+              </SwatchRing>
+            </Press>
+          );
+        })}
+        {colorWellAvailable ? (
+          <SwatchRing selected={custom} color={theme.tint}>
+            <ColorWell
+              // Opens on the last custom colour, or on the current accent the first time.
+              color={customColor ?? accent[theme.scheme]}
+              onChange={setCustomColor}
+              label="Custom accent colour"
+            />
+          </SwatchRing>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/** Rings the selected swatch in its own colour, a gap away so it reads on any colour. */
+function SwatchRing({
+  selected,
+  color,
+  children,
+}: {
+  selected: boolean;
+  color: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        borderWidth: 2,
+        borderColor: selected ? color : 'transparent',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {children}
     </View>
   );
 }

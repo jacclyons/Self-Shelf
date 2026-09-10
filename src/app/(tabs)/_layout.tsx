@@ -1,13 +1,27 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { Platform } from 'react-native';
 
 import { useTheme } from '@/ui/theme';
 
 export default function TabsLayout() {
   const theme = useTheme();
 
+  // On web the tab bar is an HTML pill whose stylesheet is always dark, so it
+  // is handed the palette here. iOS draws its own Liquid Glass bar, which
+  // already follows the appearance; colouring it would lose the glass.
+  const webColors =
+    Platform.OS === 'web'
+      ? {
+          backgroundColor: theme.bgElevated,
+          indicatorColor: theme.tintSoft,
+          labelStyle: { color: theme.textSecondary },
+        }
+      : {};
+
   return (
     <NativeTabs
       tintColor={theme.tint}
+      {...webColors}
       // iOS 26 tucks the tab bar away as you read down a shelf.
       minimizeBehavior="onScrollDown"
     >

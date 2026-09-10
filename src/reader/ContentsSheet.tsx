@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 
+import { textOn } from '@/ui/accents';
 import { Icon } from '@/ui/Bits';
 import { Press } from '@/ui/Press';
 import { radius, type as type_ } from '@/ui/theme';
@@ -78,7 +79,7 @@ export function ContentsSheet({
                   <Text
                     style={[
                       type_.footnote,
-                      { color: selected ? '#fff' : theme.fg, fontWeight: selected ? '600' : '400' },
+                      { color: selected ? textOn(theme.accent) : theme.fg, fontWeight: selected ? '600' : '400' },
                     ]}
                   >
                     {entry.label}

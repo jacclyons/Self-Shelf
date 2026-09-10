@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Text, useWindowDimensions, View } from 'react-native';
 
+import { textOn } from '@/ui/accents';
 import { Icon } from '@/ui/Bits';
 import { Press } from '@/ui/Press';
 import { radius, type as type_ } from '@/ui/theme';
@@ -204,7 +205,7 @@ export function AppearanceSheet({
                         <Text
                           style={{
                             fontSize: 16,
-                            color: selected ? '#fff' : theme.fg,
+                            color: selected ? textOn(theme.accent) : theme.fg,
                             fontFamily: font.preview,
                             fontWeight: font.preview ? '400' : '600',
                           }}
@@ -358,7 +359,7 @@ function Segmented<T extends string | number>({
                 <Text
                   style={[
                     type_.footnote,
-                    { color: selected ? '#fff' : fg, fontWeight: selected ? '600' : '400' },
+                    { color: selected ? textOn(accent) : fg, fontWeight: selected ? '600' : '400' },
                   ]}
                 >
                   {option.label}

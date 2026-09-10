@@ -154,6 +154,17 @@ function glyph(name: string, filled: boolean): ReactNode {
         </>
       );
 
+    case 'paintpalette':
+      return (
+        <>
+          <Path d="M12 3.4a8.6 8.6 0 0 0 0 17.2c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.7 1.8-1.7h2.1a4.6 4.6 0 0 0 4.6-4.6C21.3 6.6 17.1 3.4 12 3.4z" />
+          <Circle cx="7.6" cy="11.4" r="1.2" fill="currentColor" stroke="none" />
+          <Circle cx="9.6" cy="7.4" r="1.2" fill="currentColor" stroke="none" />
+          <Circle cx="14.4" cy="7.2" r="1.2" fill="currentColor" stroke="none" />
+          <Circle cx="17.4" cy="10.4" r="1.2" fill="currentColor" stroke="none" />
+        </>
+      );
+
     case 'sparkles':
       return (
         <>

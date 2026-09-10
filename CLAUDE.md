@@ -41,7 +41,14 @@ public/       static marketing/support site (about.html, support.html, site/)
 - **Platform twins.** `foo.ts` and `foo.web.ts` export the same API, and Metro picks one per
   platform. Always change both. The pairs are storage, db, secretStore, localBooks, alert, prompt,
   appChrome, webChrome, Icon and ReaderView. The db twins share their row types through
-  `state/rows.ts` so they can't drift apart.
+  `state/rows.ts` so they can't drift apart. `ui/ColorWell` is a trio: `.ios.tsx` (SwiftUI
+  `ColorPicker` via `@expo/ui`), `.web.tsx` (`<input type="color">`) and a `.tsx` Android stub
+  that renders nothing.
+- **Accent colour.** Settings offers six preset accents plus a custom colour (`ui/accents.ts`,
+  stored in `state/appearance.tsx`). It drives `theme.tint`, `tintSoft` and `onTint` (text on a
+  tint fill, white or near-black by contrast), and the reader themes' accents (Sepia keeps its
+  own). The brand gradient (`shelf.green` → `shelf.teal`) never changes. Draw on a tint fill with
+  `theme.onTint`, never a hard-coded white.
 - **Local-first store.** `state/db.ts` uses expo-sqlite with synchronous reads. The routing gate,
   the shelves and the reader all call it during render, so it has to stay synchronous. On web,
   `db.web.ts` keeps the data in memory, persists it to IndexedDB, and hydrates before the app mounts.
@@ -77,7 +84,8 @@ public/       static marketing/support site (about.html, support.html, site/)
   - `self-shelf.svg`: the colour mark (a bookmark with signal arcs)
   - `self-shelf-mono-icon.svg`: the single-colour mark, with cut-outs so the arcs read against the
     bookmark. Use this whenever the mark is one colour.
-  - `self-shelf-full-logo.svg`: the colour lockup (mark + wordmark)
+  - `self-shelf-full-logo.svg`: the colour lockup (mark + wordmark). It's the source for
+    `FullLogo` in `ui/Logo.tsx`, used on sign-in.
   - `self-shelf-mono-logo.svg`: the single-colour lockup. It's the source for the Wordmark in
     `ui/Logo.tsx` and for `public/site/wordmark.svg`, which `site.css` uses as a CSS mask.
 - The iOS icon is the Icon Composer bundle `assets/images/self-shelf.icon`, which `app.json` points
@@ -101,7 +109,6 @@ them.
 - `jellyshelf.db` in `state/db.ts`, and the IndexedDB `DB_NAME` in `state/db.web.ts`
 - `Documents/.jellyshelf/`: `PRIVATE_DIR` in `lib/storage.ts`, also listed in `INTERNAL_DIRS` in
   `lib/localBooks.ts`
-- The bundle ID / Android package `com.jacklyons.jellyshelf` in `app.json` (see open threads)
 
 ## Native projects (`ios/`, `android/`): gitignored, generated
 
@@ -128,11 +135,13 @@ them.
 
 ## Open threads (last checked 2026-09-10; check before acting)
 
-- **Bundle ID not decided.** `app.json` and the Xcode project both say `com.jacklyons.jellyshelf`,
-  the ID current TestFlight testers have. (An earlier hand edit to `com.jacklyons.selfshelf` in Xcode
-  was wiped by the 2026-09-10 prebuild.) A new ID means a new App Store Connect app: testers have to
-  join again, and it installs next to the old app instead of replacing it. Ask Jack before touching
-  it. If switching, change `bundleIdentifier` and `android.package` in `app.json`, then prebuild.
+- **Bundle ID switched on 2026-09-10** to `com.jacklyons.self-shelf` (App Store Connect app
+  "Self-Shelf", id 6810794371). Android is `com.jacklyons.selfshelf`, since Android package names
+  can't contain hyphens. The old `com.jacklyons.jellyshelf` TestFlight app still exists: testers
+  have to join the new app, and it installs alongside the old one with its own data and sign-in.
+- **Build number** is `ios.buildNumber` in `app.json` (`2` as of 2026-09-10). Bump it before every
+  App Store Connect upload, or the upload fails with error 90189 "Redundant Binary Upload". Bumping
+  it in Xcode alone gets undone by the next prebuild.
 - The iOS icon is now the colour mark on a light (`system-light`) background, but the other PNGs are
   still a white glyph on the gradient. I offered to re-export them to match.
 - Some URLs still use the old name: `jellyshelf.vercel.app` and `github.com/jacclyons/JellyShelf`,

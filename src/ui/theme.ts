@@ -1,11 +1,15 @@
+import { useMemo } from 'react';
 import { Platform, type ViewStyle } from 'react-native';
 
-import { useResolvedScheme } from '@/state/appearance';
+import { useResolvedAccent, useResolvedScheme } from '@/state/appearance';
+
+import { DEFAULT_ACCENT, textOn, type Accent } from './accents';
 
 /**
  * Self-Shelf accents with its own green→teal gradient and keeps everything else
  * warm and papery so covers stay the loudest thing on screen. Use these where
- * the app is speaking as itself (the walkthrough, the mark).
+ * the app is speaking as itself (the walkthrough, the mark). They don't follow
+ * the accent setting; `theme.tint` does.
  */
 export const shelf = {
   green: '#7FCA83',
@@ -23,6 +27,8 @@ export interface Palette {
   textTertiary: string;
   tint: string;
   tintSoft: string;
+  /** Text and icons drawn on a `tint` fill. */
+  onTint: string;
   separator: string;
   hairline: string;
   shadow: string;
@@ -43,6 +49,7 @@ const light: Palette = {
   textTertiary: 'rgba(24,21,19,0.36)',
   tint: '#2C8A8D',
   tintSoft: 'rgba(44,138,141,0.14)',
+  onTint: '#FFFFFF',
   separator: 'rgba(24,21,19,0.09)',
   hairline: 'rgba(24,21,19,0.14)',
   shadow: '#2A1D14',
@@ -63,6 +70,8 @@ const dark: Palette = {
   textTertiary: 'rgba(244,241,236,0.38)',
   tint: '#7FCA83',
   tintSoft: 'rgba(127,202,131,0.18)',
+  // The green is too light for white text; `textOn` in accents.ts agrees.
+  onTint: '#0C0B0E',
   separator: 'rgba(255,255,255,0.10)',
   hairline: 'rgba(255,255,255,0.16)',
   shadow: '#000000',
@@ -72,9 +81,33 @@ const dark: Palette = {
   success: '#4BD08B',
 };
 
-/** The active palette, honouring the Appearance setting rather than only the OS. */
+/**
+ * The active palette, honouring the Appearance setting rather than only the OS,
+ * with `tint`, `tintSoft` and `onTint` swapped for the chosen accent.
+ */
 export function useTheme(): Palette {
-  return useResolvedScheme() === 'dark' ? dark : light;
+  const scheme = useResolvedScheme();
+  const accent = useResolvedAccent();
+  return useMemo(() => paletteFor(scheme, accent), [scheme, accent]);
+}
+
+function paletteFor(scheme: 'light' | 'dark', accent: Accent): Palette {
+  const base = scheme === 'dark' ? dark : light;
+  // The default accent is already baked into the palettes, as is its soft shade.
+  if (accent === DEFAULT_ACCENT) return base;
+  const tint = accent[scheme];
+  return {
+    ...base,
+    tint,
+    tintSoft: withAlpha(tint, scheme === 'dark' ? 0.18 : 0.14),
+    onTint: textOn(tint),
+  };
+}
+
+/** `#RRGGBB` plus an opacity, as an `rgba()` string. */
+function withAlpha(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
 export const palettes = { light, dark };

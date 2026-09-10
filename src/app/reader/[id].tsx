@@ -19,6 +19,7 @@ import { isLocalId, localFileFor } from '@/lib/localBooks';
 import { useDismissTo } from '@/lib/navigation';
 import { promptForText } from '@/lib/prompt';
 import { downloadBook, ensureReaderEngine, localBookFile } from '@/lib/storage';
+import { useAppearance } from '@/state/appearance';
 import { useAuth } from '@/state/auth';
 import {
   addBookmark,
@@ -93,7 +94,8 @@ export default function Reader() {
 
   const item = book.data;
   const kind = item ? engineKindFor(formatOf(item)) : 'epub';
-  const theme = useMemo(() => themeFor(settings), [settings]);
+  const { accent } = useAppearance();
+  const theme = useMemo(() => themeFor(settings, accent), [settings, accent]);
   const font = useMemo(() => fontFor(settings), [settings]);
   const stored = id ? getProgress(id) : null;
 

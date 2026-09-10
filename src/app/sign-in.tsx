@@ -22,16 +22,26 @@ import {
   quickConnectInitiate,
   quickConnectPoll,
 } from '@/api/client';
+import { FixedScheme } from '@/state/appearance';
 import { getDeviceId, useAuth } from '@/state/auth';
 import { Icon } from '@/ui/Bits';
 import { GlassSurface } from '@/ui/Glass';
-import { Wordmark } from '@/ui/Logo';
+import { FullLogo } from '@/ui/Logo';
 import { Press } from '@/ui/Press';
 import { radius, readingColumn, shelf, type as type_, useTheme } from '@/ui/theme';
 
 type Step = 'server' | 'credentials';
 
+/** Always light, like the walkthrough before it; `_layout` matches the chrome. */
 export default function SignIn() {
+  return (
+    <FixedScheme scheme="light">
+      <SignInForm />
+    </FixedScheme>
+  );
+}
+
+function SignInForm() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -149,7 +159,7 @@ export default function SignIn() {
           keyboardShouldPersistTaps="handled"
         >
           <Animated.View entering={FadeInDown.duration(600).springify()} style={{ marginBottom: 36, alignItems: 'center' }}>
-            <Wordmark size={60} color={theme.text} />
+            <FullLogo />
           </Animated.View>
 
           {step === 'server' ? (
@@ -366,10 +376,6 @@ function PrimaryButton({
           borderRadius: radius.md,
           alignItems: 'center',
           justifyContent: 'center',
-          shadowColor: shelf.teal,
-          shadowOpacity: 0.3,
-          shadowRadius: 14,
-          shadowOffset: { width: 0, height: 6 },
         }}
       >
         {busy ? (

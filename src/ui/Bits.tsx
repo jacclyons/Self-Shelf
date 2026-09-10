@@ -154,11 +154,11 @@ export function Chip({
           backgroundColor: selected ? theme.tint : theme.surfaceAlt,
         }}
       >
-        {icon ? <Icon name={icon} size={13} color={selected ? '#fff' : theme.textSecondary} /> : null}
+        {icon ? <Icon name={icon} size={13} color={selected ? theme.onTint : theme.textSecondary} /> : null}
         <Text
           style={[
             type_.footnote,
-            { fontWeight: '600', color: selected ? '#fff' : theme.textSecondary },
+            { fontWeight: '600', color: selected ? theme.onTint : theme.textSecondary },
           ]}
         >
           {label}

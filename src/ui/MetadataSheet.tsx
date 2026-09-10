@@ -244,7 +244,7 @@ export function MetadataSheet({ visible, onClose, item, onApplied }: MetadataShe
                   opacity: manualTitle.trim() ? 1 : 0.4,
                 }}
               >
-                <Text style={[type_.headline, { color: '#fff' }]}>Save Details</Text>
+                <Text style={[type_.headline, { color: theme.onTint }]}>Save Details</Text>
               </View>
             </Press>
           </View>

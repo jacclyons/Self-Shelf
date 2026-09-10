@@ -17,8 +17,9 @@ interface GlassSurfaceProps {
   /** Matches the container radius so the fallback blur clips identically. */
   radius?: number;
   /**
-   * Forces the glass to light or dark regardless of the system appearance.
-   * The reader sets its own theme, so its chrome can't follow the OS.
+   * Forces the glass to light or dark regardless of the palette. The reader
+   * sets its own theme, so its chrome can't follow the app's. Without it the
+   * glass follows `useTheme`, so it also matches inside a `FixedScheme`.
    */
   colorScheme?: 'light' | 'dark';
 }
@@ -46,7 +47,7 @@ export function GlassSurface({
         glassEffectStyle={variant}
         tintColor={tintColor}
         isInteractive={interactive}
-        colorScheme={colorScheme ?? 'auto'}
+        colorScheme={colorScheme ?? theme.scheme}
       >
         {children}
       </GlassView>

@@ -11,8 +11,9 @@
     "ios": {
       "icon": "./assets/images/self-shelf.icon",
       "supportsTablet": true,
-      "bundleIdentifier": "com.jacklyons.jellyshelf",
+      "bundleIdentifier": "com.jacklyons.self-shelf",
       "appleTeamId": "3272AWQ475",
+      "buildNumber": "2",
       "requireFullScreen": false,
       "infoPlist": {
         "UIBackgroundModes": [
@@ -45,7 +46,7 @@
       }
     },
     "android": {
-      "package": "com.jacklyons.jellyshelf",
+      "package": "com.jacklyons.selfshelf",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#279677"

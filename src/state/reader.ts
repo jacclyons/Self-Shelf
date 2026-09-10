@@ -1,3 +1,4 @@
+import type { Accent } from '@/ui/accents';
 import { kvGet, kvSet } from './db';
 
 export interface ReaderTheme {
@@ -5,7 +6,10 @@ export interface ReaderTheme {
   name: string;
   bg: string;
   fg: string;
+  /** The brand accent; `themeFor` swaps in the app's chosen accent unless `ownAccent`. */
   accent: string;
+  /** Keeps `accent` whatever the app's accent is, for a theme whose palette depends on it. */
+  ownAccent?: boolean;
   /** Inverts PDF page raster so scanned pages match a dark room. */
   dimPages?: boolean;
   /** Thickens body copy for low-vision reading, the way Books' Bold theme does. */
@@ -16,7 +20,7 @@ export interface ReaderTheme {
 export const READER_THEMES: ReaderTheme[] = [
   { id: 'original', name: 'Original', bg: '#FFFFFF', fg: '#16130F', accent: '#2C8A8D', dark: false },
   { id: 'paper', name: 'Paper', bg: '#F7F3EC', fg: '#181513', accent: '#2C8A8D', dark: false },
-  { id: 'sepia', name: 'Sepia', bg: '#F2E3C8', fg: '#3B2E1E', accent: '#8A5A25', dark: false },
+  { id: 'sepia', name: 'Sepia', bg: '#F2E3C8', fg: '#3B2E1E', accent: '#8A5A25', ownAccent: true, dark: false },
   { id: 'bold', name: 'Bold', bg: '#FFFFFF', fg: '#000000', accent: '#2C8A8D', bold: true, dark: false },
   { id: 'quiet', name: 'Quiet', bg: '#2F2F35', fg: '#D9D6D1', accent: '#7FCA83', dimPages: true, dark: true },
   { id: 'night', name: 'Night', bg: '#0A0A0B', fg: '#C8C5C0', accent: '#7FCA83', dimPages: true, dark: true },
@@ -98,8 +102,11 @@ export function saveSettings(settings: ReaderSettings) {
   kvSet(KEY, settings);
 }
 
-export function themeFor(settings: ReaderSettings): ReaderTheme {
-  return READER_THEMES.find((t) => t.id === settings.themeId) ?? READER_THEMES[0];
+/** The chosen theme, with the app's accent (light or dark shade to suit the page). */
+export function themeFor(settings: ReaderSettings, accent: Accent): ReaderTheme {
+  const theme = READER_THEMES.find((t) => t.id === settings.themeId) ?? READER_THEMES[0];
+  if (theme.ownAccent) return theme;
+  return { ...theme, accent: theme.dark ? accent.dark : accent.light };
 }
 
 export function fontFor(settings: ReaderSettings): ReaderFont {

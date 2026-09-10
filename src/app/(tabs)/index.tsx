@@ -283,8 +283,8 @@ function HeroCard({ item }: { item: BaseItem }) {
                     backgroundColor: theme.tint,
                   }}
                 >
-                  <Icon name="book.fill" size={14} color="#fff" />
-                  <Text style={[type_.subhead, { color: '#fff', fontWeight: '600' }]}>
+                  <Icon name="book.fill" size={14} color={theme.onTint} />
+                  <Text style={[type_.subhead, { color: theme.onTint, fontWeight: '600' }]}>
                     {percent > 0 ? 'Continue' : 'Start Reading'}
                   </Text>
                 </GlassSurface>

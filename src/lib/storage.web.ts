@@ -11,7 +11,7 @@ import { forgetDownload, listDownloads } from '@/state/db';
  *
  *   - the engine ships as static files in `public/reader/`, served from our own
  *     origin, so there is nothing to unpack at runtime;
- *   - books stream straight from Jellyfin, authenticated with `api_key` in the
+ *   - books stream straight from Jellyfin, authenticated with `ApiKey` in the
  *     query string because an iframe cannot carry an Authorization header.
  *
  * Offline downloads are therefore not available on web yet. Doing it properly
@@ -48,7 +48,10 @@ export interface BookFile {
  */
 export function streamUrl(session: Session, item: BaseItem): string {
   const base = downloadUrl(session, item.Id);
-  return `${base}?api_key=${encodeURIComponent(session.token)}`;
+  const token = encodeURIComponent(session.token);
+  // Jellyfin 12 rejects the legacy `api_key` parameter with a 401 and only reads
+  // `ApiKey`; older servers may only know `api_key`. Sending both works on each.
+  return `${base}?ApiKey=${token}&api_key=${token}`;
 }
 
 /** Nothing is ever on disk in the browser build. */
