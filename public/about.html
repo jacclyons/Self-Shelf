@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Self-Shelf — A native reader for your Jellyfin library</title>
   <meta name="description" content="Self-Shelf is a native iPhone and iPad reader for the books, comics and PDFs on your Jellyfin server. Local-first, offline-ready, and free of tracking.">
-  <meta name="theme-color" content="#F7F3EC" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0C0B0E" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F7F3EC">
   <meta property="og:title" content="Self-Shelf">
   <meta property="og:description" content="A native reader for the books, comics and PDFs in your Jellyfin library.">
   <meta property="og:image" content="/site/icon.png">
@@ -14,6 +13,44 @@
   <link rel="apple-touch-icon" href="/site/icon.png">
   <link rel="stylesheet" href="/site/site.css">
   <style>
+    /* ---------- Flying logo ----------
+       There is only one lockup on the page: the one in the header. At the top of
+       the page it's transformed down onto a placeholder above the headline, and
+       the first scroll drops the transform so it travels back to the corner. The
+       two positions are measured at runtime (see the script at the end of the
+       page), so they stay lined up at any width; the CSS only reserves the space
+       and owns the motion. Without JavaScript the placeholder collapses and the
+       lockup simply stays in the header. */
+    .logo-flies .hero-logo {
+      display: block;
+      height: clamp(38px, 5.2vw, 58px);
+      margin-bottom: clamp(18px, 2.6vw, 30px);
+    }
+    .logo-flies .site-header .logo {
+      transform-origin: left top;
+      will-change: transform;
+    }
+    .logo-flies .site-header .logo.is-animated {
+      transition: transform 520ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    /* Nothing has scrolled under the bar yet, so let the hero read as one open
+       space while the lockup is down in it. */
+    .logo-flies .site-header {
+      transition: background-color 260ms ease;
+    }
+    .logo-flies.at-top .site-header {
+      background: transparent;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      /* No flight: the lockup stays in the corner, the hero starts at the headline. */
+      .logo-flies .hero-logo { display: none; }
+      .logo-flies .site-header .logo { transform: none; }
+    }
+
     /* ---------- Hero ---------- */
     .hero { padding-block: clamp(48px, 8vw, 96px) clamp(40px, 6vw, 72px); overflow: hidden; }
     .hero .wrap {
@@ -245,13 +282,18 @@
       .hero-actions .btn { flex: 1 1 100%; }
     }
   </style>
+  <script>
+    /* Set before first paint: the hero placeholder only earns its space when the
+       script at the end of the page is there to fly the lockup into it. */
+    document.documentElement.classList.add('logo-flies');
+  </script>
 </head>
 <body>
 
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="/about" aria-label="Self-Shelf home">
-      <span class="wordmark" role="img" aria-label="Self-Shelf"></span>
+      <img class="logo" src="/site/full-logo.svg" alt="Self-Shelf" width="11372" height="2151">
     </a>
     <nav class="nav" aria-label="Main">
       <a href="/about" aria-current="page" class="hide-sm">About</a>
@@ -265,6 +307,7 @@
   <section class="hero">
     <div class="wrap">
       <div>
+        <span class="hero-logo" aria-hidden="true"></span>
         <h1 class="display">Your Jellyfin library, <em>made for reading.</em></h1>
         <p class="lede">
           Self-Shelf is a native reader for the books, comics and PDFs on your own Jellyfin server.
@@ -438,6 +481,59 @@
     </nav>
   </div>
 </footer>
+
+<script>
+  /* Flies the header lockup between the hero placeholder and the corner. Both
+     positions are measured from the live layout rather than hard-coded, so the
+     landing spot survives a resize or a change to either size. */
+  (function () {
+    var root = document.documentElement;
+    var logo = document.querySelector('.site-header .logo');
+    var slot = document.querySelector('.hero-logo');
+    if (!logo || !slot) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    var x = 0;
+    var y = 0;
+    var scale = 1;
+
+    /* Reading the untransformed rect means clearing the transform first, so the
+       transition is off for the measurement and restored on the next frame. */
+    function measure() {
+      logo.classList.remove('is-animated');
+      logo.style.transform = '';
+      var corner = logo.getBoundingClientRect();
+      var target = slot.getBoundingClientRect();
+      x = target.left - corner.left;
+      y = target.top + window.scrollY - corner.top;
+      scale = corner.height ? target.height / corner.height : 1;
+      place();
+      requestAnimationFrame(function () { logo.classList.add('is-animated'); });
+    }
+
+    function place() {
+      var atTop = window.scrollY < 24;
+      root.classList.toggle('at-top', atTop);
+      logo.style.transform = atTop
+        ? 'translate(' + x + 'px, ' + y + 'px) scale(' + scale + ')'
+        : '';
+    }
+
+    var queued = false;
+    function onScroll() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(function () {
+        queued = false;
+        place();
+      });
+    }
+
+    measure();
+    addEventListener('scroll', onScroll, { passive: true });
+    addEventListener('resize', measure);
+  })();
+</script>
 
 </body>
 </html>

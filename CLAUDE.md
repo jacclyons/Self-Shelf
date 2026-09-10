@@ -85,14 +85,19 @@ public/       static marketing/support site (about.html, support.html, site/)
   - `self-shelf-mono-icon.svg`: the single-colour mark, with cut-outs so the arcs read against the
     bookmark. Use this whenever the mark is one colour.
   - `self-shelf-full-logo.svg`: the colour lockup (mark + wordmark). It's the source for
-    `FullLogo` in `ui/Logo.tsx`, used on sign-in.
+    `FullLogo` in `ui/Logo.tsx`, used on sign-in, and is copied to `public/site/full-logo.svg`
+    for the header of the static site.
   - `self-shelf-mono-logo.svg`: the single-colour lockup. It's the source for the Wordmark in
-    `ui/Logo.tsx` and for `public/site/wordmark.svg`, which `site.css` uses as a CSS mask.
+    `ui/Logo.tsx`.
 - The iOS icon is the Icon Composer bundle `assets/images/self-shelf.icon`, which `app.json` points
   to as `ios.icon`. Jack edits it in Icon Composer, so don't rewrite it by hand unless asked.
 - Exported PNGs: `icon.png` (1024), `adaptive-icon.png` (white glyph on transparent over the Android
-  background `#279677`), `splash-icon.png` (512, colour mark), `favicon.png` (48),
-  `public/site/icon.png` (256) and `assets/readme-banner.png` (1280×720).
+  background `#279677`), `splash-icon.png` (512, colour mark), `favicon.png` (256, colour mark, the
+  same art as `public/site/icon.png`), `web-touch-icon.png` (180, the mark on the paper `#F6F1E7`,
+  because iOS fills a transparent home-screen icon in with black), `public/site/icon.png` (256) and
+  `assets/readme-banner.png` (1280×720). The SPA links `favicon.png` and `web-touch-icon.png`
+  itself: it has no HTML shell to put a `<link>` in, so `lib/webChrome.web.ts` appends them at
+  runtime. The static pages link `public/site/icon.png` for both.
 - **Re-exporting the PNGs.** ImageMagick is installed, but its built-in SVG renderer gets these
   gradients wrong. Render with headless Chrome
   (`--headless=new --screenshot --default-background-color=00000000 --window-size=W,H`), then

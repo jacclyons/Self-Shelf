@@ -17,22 +17,10 @@
   --shadow: 0 1px 2px rgba(42, 29, 20, 0.06), 0 12px 32px -12px rgba(42, 29, 20, 0.18);
   --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0C0B0E;
-    --bg-elevated: #161519;
-    --surface-alt: rgba(255, 255, 255, 0.06);
-    --text: #F4F1EC;
-    --text-2: rgba(244, 241, 236, 0.64);
-    --text-3: rgba(244, 241, 236, 0.4);
-    --tint: #7FCA83;
-    --tint-soft: rgba(127, 202, 131, 0.14);
-    --hairline: rgba(255, 255, 255, 0.12);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -16px rgba(0, 0, 0, 0.7);
-  }
+  /* The pages are always light, whatever the visitor's system setting: the
+     papery background is part of the brand, and the phone mock-up and the
+     gradient panels are drawn for it. */
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -65,7 +53,6 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(18px);
   backdrop-filter: saturate(180%) blur(18px);
-  border-bottom: 1px solid var(--hairline);
 }
 
 .site-header .wrap {
@@ -82,17 +69,16 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
   gap: 10px;
 }
 .brand:hover { text-decoration: none; }
-.brand img { width: 30px; height: 30px; border-radius: 7px; }
 
-/* The wordmark SVG is used as a mask so it can take any colour or gradient. */
-.wordmark {
+/* The colour lockup (assets/images/self-shelf-full-logo.svg) paints its own
+   brand gradients, so it ships as an image rather than a mask. The explicit
+   ratio is here because the SVG sizes itself to 100%, so it has none. */
+.brand .logo {
   display: block;
+  height: 24px;
+  width: auto;
   aspect-ratio: 11372 / 2151;
-  background: var(--text);
-  -webkit-mask: url(/site/wordmark.svg) center / contain no-repeat;
-  mask: url(/site/wordmark.svg) center / contain no-repeat;
 }
-.brand .wordmark { height: 20px; }
 
 .nav {
   display: flex;

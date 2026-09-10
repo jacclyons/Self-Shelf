@@ -126,7 +126,7 @@ export default function Settings() {
         <Row
           icon="book.closed"
           label="Supported formats"
-          value="EPUB · PDF"
+          value="EPUB · PDF · CBZ · CBR"
         />
         <Row
           icon="sparkles"
