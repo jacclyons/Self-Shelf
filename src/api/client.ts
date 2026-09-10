@@ -1,5 +1,6 @@
 import * as Application from 'expo-application';
 import * as Device from 'expo-device';
+import { Platform } from 'react-native';
 
 import type {
   AuthenticationResult,
@@ -23,14 +24,38 @@ export class JellyfinError extends Error {
   }
 }
 
+/**
+ * True when this is the web build served over HTTPS (a hosted deployment),
+ * where the browser refuses any request to a plain `http://` server.
+ */
+function pageIsSecure(): boolean {
+  return (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    window.location.protocol === 'https:'
+  );
+}
+
 /** Trim trailing slashes and add a scheme if the user typed a bare host. */
 export function normalizeServerUrl(input: string): string {
   let url = input.trim();
   if (!url) throw new JellyfinError('Enter a server address.');
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+  // A bare host means http on a phone on the LAN, but a hosted page can only
+  // ever reach https — guessing http there would guarantee a failure.
+  if (!/^https?:\/\//i.test(url)) url = `${pageIsSecure() ? 'https' : 'http'}://${url}`;
   url = url.replace(/\/+$/, '');
   // People paste the web client URL constantly; the API lives one level up.
   url = url.replace(/\/web(\/index\.html)?(#.*)?$/i, '');
+
+  // Otherwise the fetch fails with a bare network error and the user is told
+  // to check their Wi-Fi, when the real cause is the browser's mixed-content
+  // rule and no network change will fix it.
+  if (pageIsSecure() && /^http:\/\//i.test(url)) {
+    throw new JellyfinError(
+      'This page is served over HTTPS, so your browser blocks servers on plain http://. ' +
+        "Use your server's https:// address.",
+    );
+  }
   return url;
 }
 
