@@ -73,7 +73,7 @@ export default function Library() {
 
     let all = [...onDevice, ...server];
     if (filter === 'downloaded') {
-      // Files in the JellyShelf folder are already on the device by definition.
+      // Files in the Self-Shelf folder are already on the device by definition.
       all = all.filter((item) => item.Id.startsWith('local:') || isDownloaded(item.Id));
     } else if (filter === 'favorites') {
       all = all.filter((item) => item.UserData?.IsFavorite);
@@ -114,7 +114,7 @@ export default function Library() {
       if (count === 0) return;
       showAlert(
         'Added to your shelf',
-        `${count} book${count === 1 ? '' : 's'} copied into the JellyShelf folder.`,
+        `${count} book${count === 1 ? '' : 's'} copied into the Self-Shelf folder.`,
       );
     } catch (error) {
       showAlert("Couldn't import", (error as Error).message ?? 'Please try again.');

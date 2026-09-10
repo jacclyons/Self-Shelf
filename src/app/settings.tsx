@@ -119,7 +119,7 @@ export default function Settings() {
       </Section>
 
       <Section title="About">
-        <Row icon="info.circle" label="JellyShelf" value={CLIENT_VERSION} />
+        <Row icon="info.circle" label="Self-Shelf" value={CLIENT_VERSION} />
         <Row
           icon="book.closed"
           label="Supported formats"

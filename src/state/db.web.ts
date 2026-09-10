@@ -27,6 +27,7 @@ export type { BookmarkRow, DownloadRow, HighlightRow, LocalBookRow, ProgressRow 
  * highlights.
  */
 
+// Pre-rename name, kept so existing reading positions carry over.
 const DB_NAME = 'jellyshelf';
 const STORE = 'tables';
 const VERSION = 1;

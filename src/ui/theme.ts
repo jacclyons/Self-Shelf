@@ -3,19 +3,9 @@ import { Platform, type ViewStyle } from 'react-native';
 import { useResolvedScheme } from '@/state/appearance';
 
 /**
- * JellyShelf accents with its own green→teal gradient and keeps everything else
- * warm and papery so covers stay the loudest thing on screen. Jellyfin's purple
- * is kept in `brand` for moments that are explicitly about the server itself.
- */
-export const brand = {
-  purple: '#AA5CC3',
-  blue: '#00A4DC',
-} as const;
-
-/**
- * JellyShelf's own brand gradient. Use these where the app is speaking as itself
- * (the walkthrough, the mark); `brand` stays reserved for Jellyfin-flavoured
- * moments like the server connection flow.
+ * Self-Shelf accents with its own green→teal gradient and keeps everything else
+ * warm and papery so covers stay the loudest thing on screen. Use these where
+ * the app is speaking as itself (the walkthrough, the mark).
  */
 export const shelf = {
   green: '#7FCA83',

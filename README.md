@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-banner.png" alt="JellyShelf" width="100%">
+  <img src="assets/readme-banner.png" alt="Self-Shelf" width="100%">
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 ---
 
-Jellyfin is great at storing your library. It is not great at reading it on a phone. JellyShelf
+Jellyfin is great at storing your library. It is not great at reading it on a phone. Self-Shelf
 signs into your server, pulls down the shelf, and gets out of the way so you can read.
 
 Everything is local-first. Your place in a book, your bookmarks, your highlights and your type
@@ -53,7 +53,7 @@ is pushed back up to Jellyfin when the server is reachable.
 
 **Offline and on-device**
 - Download any book for offline reading, with live progress and a size readout
-- Drop your own EPUBs and PDFs into the JellyShelf folder in Files and they show up on the shelf
+- Drop your own EPUBs and PDFs into the Self-Shelf folder in Files and they show up on the shelf
 - Filenames like `Austen, Jane - Emma.epub` are parsed for title and author automatically
 - Sign in with a username and password, or with Quick Connect if your server has it turned on
 
@@ -77,12 +77,12 @@ npm install
 npm run ios
 ```
 
-JellyShelf uses native modules, so Expo Go will not work. `npm run ios` builds and installs a dev
+Self-Shelf uses native modules, so Expo Go will not work. `npm run ios` builds and installs a dev
 client. After that, `npm start` is enough for day to day work.
 
 On first launch you get a short walkthrough, then a sign-in screen. Type your server address the
 way you would in a browser (`jellyfin.home.lan:8096` is fine, so is a pasted web client URL) and
-JellyShelf will sort out the scheme and strip the `/web` suffix.
+Self-Shelf will sort out the scheme and strip the `/web` suffix.
 
 ## Scripts
 
@@ -103,7 +103,7 @@ the engine talk over a small typed message protocol, so the native side owns nav
 persistence while the WebView only paints pages.
 
 Books live under `Documents/` so that both halves of that story work at once: iOS shows the folder
-as "JellyShelf" in the Files app for your own EPUBs, and downloads from Jellyfin land in a
+as "Self-Shelf" in the Files app for your own EPUBs, and downloads from Jellyfin land in a
 dot-prefixed subfolder the Files app leaves alone.
 
 ```

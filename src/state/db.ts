@@ -100,6 +100,7 @@ let opening: Promise<void> | null = null;
  */
 export function initDatabase(): Promise<void> {
   opening ??= (async () => {
+    // Pre-rename filename, kept so existing reading positions carry over.
     handle = SQLite.openDatabaseSync('jellyshelf.db');
     handle.execSync(SCHEMA);
   })();

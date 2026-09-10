@@ -1,4 +1,4 @@
-/** Minimal, hand-written slice of the Jellyfin API surface JellyShelf actually uses. */
+/** Minimal, hand-written slice of the Jellyfin API surface Self-Shelf actually uses. */
 
 export type ItemType = 'Book' | 'AudioBook' | 'Folder' | 'CollectionFolder';
 

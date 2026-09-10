@@ -219,7 +219,7 @@ export default function BookDetail() {
             >
               <Icon name="info.circle" size={16} color={theme.textSecondary} />
               <Text style={[type_.footnote, { color: theme.textSecondary, flex: 1 }]}>
-                JellyShelf reads EPUB, PDF, CBZ and CBR. This one is{' '}
+                Self-Shelf reads EPUB, PDF, CBZ and CBR. This one is{' '}
                 {format === 'comic-unsupported'
                   ? 'a 7z or tar-based comic archive, which needs another decoder'
                   : 'an unsupported format'}{' '}
@@ -256,7 +256,7 @@ export default function BookDetail() {
               if (local) {
                 showAlert(
                   'Stored on this iPhone',
-                  'This book lives in the JellyShelf folder in the Files app. Delete it there to remove it.',
+                  'This book lives in the Self-Shelf folder in the Files app. Delete it there to remove it.',
                 );
                 return;
               }

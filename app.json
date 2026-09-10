@@ -1,23 +1,24 @@
 {
   "expo": {
-    "name": "JellyShelf",
-    "slug": "jellyshelf",
+    "name": "Self-Shelf",
+    "slug": "self-shelf",
     "version": "1.0.0",
     "orientation": "default",
-    "scheme": "jellyshelf",
+    "scheme": "selfshelf",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "icon": "./assets/images/icon.png",
     "ios": {
-      "icon": "./assets/images/jellyshelf.icon",
+      "icon": "./assets/images/self-shelf.icon",
       "supportsTablet": true,
       "bundleIdentifier": "com.jacklyons.jellyshelf",
+      "appleTeamId": "3272AWQ475",
       "requireFullScreen": false,
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
         ],
-        "NSLocalNetworkUsageDescription": "JellyShelf connects to Jellyfin servers on your local network so you can read your own library.",
+        "NSLocalNetworkUsageDescription": "Self-Shelf connects to Jellyfin servers on your local network so you can read your own library.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true

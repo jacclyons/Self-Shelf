@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>JellyShelf Support</title>
-  <meta name="description" content="Help with setting up JellyShelf, connecting to your Jellyfin server, reading offline, and reporting problems.">
+  <title>Self-Shelf Support</title>
+  <meta name="description" content="Help with setting up Self-Shelf, connecting to your Jellyfin server, reading offline, and reporting problems.">
   <meta name="theme-color" content="#F7F3EC" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0C0B0E" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="/site/icon.png">
@@ -156,8 +156,8 @@
 
 <header class="site-header">
   <div class="wrap">
-    <a class="brand" href="/about" aria-label="JellyShelf home">
-      <span class="wordmark" role="img" aria-label="JellyShelf"></span>
+    <a class="brand" href="/about" aria-label="Self-Shelf home">
+      <span class="wordmark" role="img" aria-label="Self-Shelf"></span>
     </a>
     <nav class="nav" aria-label="Main">
       <a href="/about" class="hide-sm">About</a>
@@ -204,7 +204,7 @@
           <ol class="steps">
             <li><strong>Install the Bookshelf plugin</strong>In the Jellyfin dashboard, go to Plugins → Catalog, install <strong>Bookshelf</strong>, then restart your server.</li>
             <li><strong>Add a books library</strong>Go to Dashboard → Libraries and add a library with the content type <strong>Books</strong> that points at your EPUB, PDF, CBZ and CBR files. Let the scan finish.</li>
-            <li><strong>Sign in to JellyShelf</strong>Enter your server address, like <code>jellyfin.home.lan:8096</code>, then your username and password. You can also use Quick Connect.</li>
+            <li><strong>Sign in to Self-Shelf</strong>Enter your server address, like <code>jellyfin.home.lan:8096</code>, then your username and password. You can also use Quick Connect.</li>
             <li><strong>Start reading</strong>Your shelves fill in right away. Tap a book to open it, or download it to read offline.</li>
           </ol>
         </section>
@@ -213,15 +213,15 @@
           <h2>Connecting to your server</h2>
 
           <details>
-            <summary>JellyShelf can’t find my server</summary>
+            <summary>Self-Shelf can’t find my server</summary>
             <div class="answer">
               <ul>
                 <li>Use the same address you use to open Jellyfin in a browser, including the port (the default is <code>8096</code>).</li>
                 <li>If your server uses a custom port or HTTPS, include <code>http://</code> or <code>https://</code> at the start.</li>
                 <li>A local address like <code>192.168.1.20:8096</code> only works on the same Wi‑Fi network as your server. Away from home, use your server’s public or VPN address.</li>
-                <li>On iPhone and iPad, make sure JellyShelf is allowed to reach your network: Settings → Privacy &amp; Security → Local Network → JellyShelf.</li>
+                <li>On iPhone and iPad, make sure Self-Shelf is allowed to reach your network: Settings → Privacy &amp; Security → Local Network → Self-Shelf.</li>
               </ul>
-              <p>Pasting your Jellyfin web address (ending in <code>/web</code>) is fine. JellyShelf removes that part for you.</p>
+              <p>Pasting your Jellyfin web address (ending in <code>/web</code>) is fine. Self-Shelf removes that part for you.</p>
             </div>
           </details>
 
@@ -235,7 +235,7 @@
           <details>
             <summary>How do I sign in with Quick Connect?</summary>
             <div class="answer">
-              <p>First turn on Quick Connect in your Jellyfin dashboard under Dashboard → General. Then choose Quick Connect on the JellyShelf sign-in screen. You’ll get a short code. Enter it in Jellyfin on a device where you’re already signed in (under your profile → Quick Connect), and JellyShelf signs in automatically.</p>
+              <p>First turn on Quick Connect in your Jellyfin dashboard under Dashboard → General. Then choose Quick Connect on the Self-Shelf sign-in screen. You’ll get a short code. Enter it in Jellyfin on a device where you’re already signed in (under your profile → Quick Connect), and Self-Shelf signs in automatically.</p>
             </div>
           </details>
 
@@ -290,8 +290,8 @@
           <details>
             <summary>Can I add books that aren’t on my server?</summary>
             <div class="answer">
-              <p>Yes. On iPhone or iPad, open the <strong>Files</strong> app and go to On My iPhone (or On My iPad) → <strong>JellyShelf</strong>. Put EPUB or PDF files there and they’ll appear on your shelf.</p>
-              <p>Name files like <code>Austen, Jane - Emma.epub</code> and JellyShelf will fill in the title and author for you. To add a cover and details, press and hold the book and choose <strong>Find Metadata…</strong></p>
+              <p>Yes. On iPhone or iPad, open the <strong>Files</strong> app and go to On My iPhone (or On My iPad) → <strong>Self-Shelf</strong>. Put EPUB or PDF files there and they’ll appear on your shelf.</p>
+              <p>Name files like <code>Austen, Jane - Emma.epub</code> and Self-Shelf will fill in the title and author for you. To add a cover and details, press and hold the book and choose <strong>Find Metadata…</strong></p>
             </div>
           </details>
         </section>
@@ -300,9 +300,9 @@
           <h2>Privacy</h2>
 
           <details open>
-            <summary>What data does JellyShelf collect?</summary>
+            <summary>What data does Self-Shelf collect?</summary>
             <div class="answer">
-              <p><strong>None.</strong> JellyShelf has no accounts of its own, no ads, no analytics and no tracking. We don’t run a server that sees your data.</p>
+              <p><strong>None.</strong> Self-Shelf has no accounts of its own, no ads, no analytics and no tracking. We don’t run a server that sees your data.</p>
               <ul>
                 <li>The app connects directly to the Jellyfin server you sign into. Your sign-in token is stored in the device’s secure keychain.</li>
                 <li>Reading positions, bookmarks, highlights, notes, downloads and settings are stored on your device.</li>
@@ -319,9 +319,9 @@
           </details>
 
           <details>
-            <summary>Is JellyShelf made by Jellyfin?</summary>
+            <summary>Is Self-Shelf made by Jellyfin?</summary>
             <div class="answer">
-              <p>No. JellyShelf is an independent app and isn’t affiliated with or endorsed by the Jellyfin project. It uses Jellyfin’s public API to read the library you already have.</p>
+              <p>No. Self-Shelf is an independent app and isn’t affiliated with or endorsed by the Jellyfin project. It uses Jellyfin’s public API to read the library you already have.</p>
             </div>
           </details>
         </section>
@@ -330,7 +330,7 @@
           <h2>Reporting a problem</h2>
           <p>The quickest way to get something fixed is to <a href="https://github.com/jacclyons/JellyShelf/issues/new">open an issue on GitHub</a>. It helps a lot if you include:</p>
           <ul class="checklist">
-            <li>Your JellyShelf version (Settings → JellyShelf)</li>
+            <li>Your Self-Shelf version (Settings → Self-Shelf)</li>
             <li>Your device and iOS version, or your browser if you’re using the web version</li>
             <li>Your Jellyfin server version and Bookshelf plugin version</li>
             <li>The file format (EPUB, PDF, CBZ or CBR), and whether it happens with every book or just one</li>
@@ -344,7 +344,7 @@
 
 <footer class="site-footer">
   <div class="wrap">
-    <p>© 2026 JellyShelf. An independent app, not affiliated with the Jellyfin project.</p>
+    <p>© 2026 Self-Shelf. An independent app, not affiliated with the Jellyfin project.</p>
     <nav aria-label="Footer">
       <a href="/about">About</a>
       <a href="/support">Support</a>

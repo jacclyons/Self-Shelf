@@ -149,7 +149,7 @@ export default function SignIn() {
           keyboardShouldPersistTaps="handled"
         >
           <Animated.View entering={FadeInDown.duration(600).springify()} style={{ marginBottom: 36, alignItems: 'center' }}>
-            <Wordmark size={75} color={theme.text} />
+            <Wordmark size={60} color={theme.text} />
           </Animated.View>
 
           {step === 'server' ? (

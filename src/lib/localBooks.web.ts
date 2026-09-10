@@ -4,7 +4,7 @@ import { getProgress, listLocalBooks, type LocalBookRow } from '@/state/db';
 /**
  * Web twin of `localBooks.ts`.
  *
- * The native build scans the JellyShelf folder in Files and treats whatever it
+ * The native build scans the Self-Shelf folder in Files and treats whatever it
  * finds as part of the shelf. A browser has no such folder, so there are no
  * local books here — rows already in SQLite from another device stay readable
  * as metadata, but nothing is scanned or imported.

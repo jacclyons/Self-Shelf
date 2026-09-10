@@ -15,7 +15,7 @@ const OPEN_LIBRARY_COVERS = 'https://covers.openlibrary.org/b/id';
 const GOOGLE_BOOKS = 'https://www.googleapis.com/books/v1/volumes';
 
 /** Open Library asks clients to identify themselves; unidentified ones get throttled harder. */
-const USER_AGENT = 'JellyShelf/1.0 (Jellyfin book reader; +https://jellyfin.org)';
+const USER_AGENT = 'Self-Shelf/1.0 (book reader; +https://jellyshelf.vercel.app)';
 
 export interface MetadataMatch {
   key: string;

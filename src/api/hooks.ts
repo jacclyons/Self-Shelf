@@ -125,7 +125,7 @@ export function useBook(itemId?: string) {
     queryFn: async ({ signal }) => {
       if (itemId && isLocalId(itemId)) {
         const local = localItem(itemId);
-        if (!local) throw new Error('That file is no longer in your JellyShelf folder.');
+        if (!local) throw new Error('That file is no longer in your Self-Shelf folder.');
         return local;
       }
       const res = await getBooks(session!, { ids: [itemId!], includeItemTypes: [] }, signal);

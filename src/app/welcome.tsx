@@ -30,7 +30,7 @@ interface Page {
 }
 
 /**
- * The last page is doing real work beyond marketing: JellyShelf is useless without
+ * The last page is doing real work beyond marketing: Self-Shelf is useless without
  * somebody else's Jellyfin server, and a cold launch straight into a server-URL
  * field reads as a broken app to anyone who doesn't already run one.
  */

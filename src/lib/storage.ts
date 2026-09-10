@@ -10,7 +10,7 @@ import { forgetDownload, getDownload, kvGet, kvSet, listDownloads, recordDownloa
  * Layout on disk:
  *
  *   Documents/                  <- WKWebView read-access root, and the folder
- *     <your own books>.epub        the Files app shows as "JellyShelf"
+ *     <your own books>.epub        the Files app shows as "Self-Shelf"
  *     .jellyshelf/              <- dot-prefixed so Files keeps it out of sight
  *       engine/reader.html + vendored epub.js / pdf.js
  *       books/<itemId>.<ext>       Jellyfin downloads
@@ -19,6 +19,7 @@ import { forgetDownload, getDownload, kvGet, kvSet, listDownloads, recordDownloa
  * file:// from inside the WebView, whether it came from Jellyfin or from you.
  */
 export const SHELF_ROOT = new Directory(Paths.document);
+// Named before the Self-Shelf rename; renaming it would orphan existing downloads.
 export const PRIVATE_DIR = new Directory(Paths.document, '.jellyshelf');
 export const ENGINE_DIR = new Directory(PRIVATE_DIR, 'engine');
 export const BOOKS_DIR = new Directory(PRIVATE_DIR, 'books');

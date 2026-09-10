@@ -10,7 +10,7 @@ import type {
   QuickConnectResult,
 } from './types';
 
-export const CLIENT_NAME = 'JellyShelf';
+export const CLIENT_NAME = 'Self-Shelf';
 export const CLIENT_VERSION = Application.nativeApplicationVersion ?? '1.0.0';
 
 export class JellyfinError extends Error {

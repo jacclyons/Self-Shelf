@@ -87,7 +87,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* The wordmark SVG is used as a mask so it can take any colour or gradient. */
 .wordmark {
   display: block;
-  aspect-ratio: 9236 / 1930;
+  aspect-ratio: 11372 / 2151;
   background: var(--text);
   -webkit-mask: url(/site/wordmark.svg) center / contain no-repeat;
   mask: url(/site/wordmark.svg) center / contain no-repeat;

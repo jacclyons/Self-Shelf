@@ -114,7 +114,7 @@ export default function Reader() {
         // A book already in the Files folder needs no fetching.
         if (local) {
           const file = localFileFor(item.Id);
-          if (!file) throw new Error('That file is no longer in your JellyShelf folder.');
+          if (!file) throw new Error('That file is no longer in your Self-Shelf folder.');
           setBookUri(file.uri);
           return;
         }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>JellyShelf Reader</title>
+<title>Self-Shelf Reader</title>
 <style>
   :root {
     --bg: #F7F3EC;
@@ -275,8 +275,8 @@
   function applyEpubStyle() {
     if (!state.rendition) return;
     var r = state.rendition;
-    r.themes.register('jellyshelf', epubThemeRules());
-    r.themes.select('jellyshelf');
+    r.themes.register('self-shelf', epubThemeRules());
+    r.themes.select('self-shelf');
     r.themes.fontSize(state.settings.fontSize + '%');
     if (state.settings.fontFamily && state.settings.fontFamily !== 'publisher') {
       r.themes.font(state.settings.fontFamily);

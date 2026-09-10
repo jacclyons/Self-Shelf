@@ -4,11 +4,11 @@
  *
  * This is injected at runtime rather than written into the HTML shell because
  * Expo only renders `+html.tsx` when the web build is statically rendered, and
- * JellyShelf ships as a single-page app so it can be served from anywhere —
+ * Self-Shelf ships as a single-page app so it can be served from anywhere —
  * including next to Jellyfin itself.
  */
 
-const STYLE_ID = 'jellyshelf-web-chrome';
+const STYLE_ID = 'self-shelf-web-chrome';
 
 const css = `
   /* The app paints its own background; this stops a white flash on load. */

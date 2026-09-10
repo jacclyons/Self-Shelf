@@ -1,28 +1,14 @@
 {
-  "fill" : {
-    "linear-gradient" : [
-      "display-p3:0.38680,0.61554,0.39928,1.00000",
-      "display-p3:0.17255,0.54118,0.55294,1.00000"
-    ],
-    "orientation" : {
-      "start" : {
-        "x" : 0.5,
-        "y" : 0
-      },
-      "stop" : {
-        "x" : 0.5,
-        "y" : 0.7
-      }
-    }
-  },
+  "fill" : "system-light",
   "groups" : [
     {
       "layers" : [
         {
-          "image-name" : "jellyshelf.svg",
-          "name" : "jellyshelf",
+          "glass" : false,
+          "image-name" : "self-shelf 2.svg",
+          "name" : "self-shelf 2",
           "position" : {
-            "scale" : 0.72,
+            "scale" : 0.27,
             "translation-in-points" : [
               0,
               0

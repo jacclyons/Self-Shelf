@@ -11,6 +11,7 @@ import {
   type Session,
 } from '@/api/client';
 
+// Keys predate the Self-Shelf rename; changing them would sign everyone out.
 const SESSION_KEY = 'jellyshelf.session.v1';
 const DEVICE_KEY = 'jellyshelf.deviceId.v1';
 
