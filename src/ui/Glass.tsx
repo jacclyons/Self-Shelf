@@ -69,14 +69,25 @@ export function GlassSurface({
     );
   }
 
+  // Without a blur, a half-transparent fill lets whatever sits underneath (the
+  // book's text, under the reader chrome) read straight through. Browsers can
+  // frost it themselves; `regular` is also made more opaque to match its native look.
+  const alpha = variant === 'clear' ? 0.5 : 0.72;
+  const frost =
+    Platform.OS === 'web'
+      ? ({ backdropFilter: `blur(${variant === 'clear' ? 12 : 24}px) saturate(180%)` } as ViewStyle)
+      : null;
+
   return (
     <View
       style={[
         {
           borderRadius: radius,
           overflow: 'hidden',
-          backgroundColor: tintColor ?? (dark ? 'rgba(30,28,34,0.5)' : 'rgba(255,255,255,0.5)'),
+          backgroundColor:
+            tintColor ?? (dark ? `rgba(30,28,34,${alpha})` : `rgba(255,255,255,${alpha})`),
         },
+        frost,
         style,
       ]}
     >

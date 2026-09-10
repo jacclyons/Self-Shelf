@@ -283,7 +283,7 @@ function Field({
   label,
   icon,
   ...props
-}: { label: string; icon: Parameters<typeof Icon>[0]['name'] } & React.ComponentProps<
+}: { label?: string; icon: Parameters<typeof Icon>[0]['name'] } & React.ComponentProps<
   typeof TextInput
 >) {
   const theme = useTheme();
@@ -291,20 +291,22 @@ function Field({
 
   return (
     <View style={{ marginBottom: 14 }}>
-      <Text
-        style={[
-          type_.caption2,
-          {
-            color: theme.textTertiary,
-            marginBottom: 7,
-            marginLeft: 4,
-            textTransform: 'uppercase',
-            letterSpacing: 0.6,
-          },
-        ]}
-      >
-        {label}
-      </Text>
+      {label ? (
+        <Text
+          style={[
+            type_.caption2,
+            {
+              color: theme.textTertiary,
+              marginBottom: 7,
+              marginLeft: 4,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+            },
+          ]}
+        >
+          {label}
+        </Text>
+      ) : null}
       <GlassSurface
         variant="clear"
         radius={radius.md}

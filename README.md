@@ -7,6 +7,10 @@
 </p>
 
 <p align="center">
+  <a href="https://jellyshelf.vercel.app"><strong>jellyshelf.vercel.app</strong></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/platform-iOS%2026-000?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/Expo-57-000?style=flat-square&logo=expo" alt="Expo 57">
   <img src="https://img.shields.io/badge/React%20Native-0.86-087ea4?style=flat-square&logo=react" alt="React Native 0.86">
@@ -21,6 +25,12 @@ signs into your server, pulls down the shelf, and gets out of the way so you can
 Everything is local-first. Your place in a book, your bookmarks, your highlights and your type
 settings live in SQLite on the device, so the app opens instantly and works on a plane. Progress
 is pushed back up to Jellyfin when the server is reachable.
+
+## Try it
+
+- **Web:** [jellyshelf.vercel.app](https://jellyshelf.vercel.app) is open to everyone. Sign in with
+  your own Jellyfin server and start reading in the browser.
+- **iOS:** The native app is being tested through TestFlight.
 
 ## What it does
 
