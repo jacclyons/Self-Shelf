@@ -94,17 +94,7 @@ export default function Welcome() {
 
   return (
     <Animated.View entering={FadeIn.duration(320)} style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ height: insets.top }} />
-
-      <View style={{ alignItems: 'flex-end', paddingHorizontal: 20, height: 44 }}>
-        {!last && (
-          <Press onPress={finish} hitSlop={12} haptic="selection">
-            <Text style={[type_.callout, { color: theme.textSecondary }]}>
-              {replay ? 'Close' : 'Skip'}
-            </Text>
-          </Press>
-        )}
-      </View>
+      <View style={{ height: insets.top + 44 }} />
 
       <ScrollView
         ref={scroller}
@@ -179,10 +169,25 @@ export default function Welcome() {
       <View
         style={[
           readingColumn,
-          { paddingHorizontal: 24, paddingBottom: Math.max(insets.bottom, 20) + 8 },
+          {
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            paddingHorizontal: 24,
+            paddingBottom: Math.max(insets.bottom, 20) + 8,
+          },
         ]}
       >
-        <Press onPress={advance} haptic="medium">
+        {!last && (
+          <Press onPress={finish} haptic="selection">
+            <View style={{ height: 54, paddingHorizontal: 20, justifyContent: 'center' }}>
+              <Text style={[type_.headline, { color: theme.textSecondary }]}>
+                {replay ? 'Close' : 'Skip'}
+              </Text>
+            </View>
+          </Press>
+        )}
+        <Press onPress={advance} haptic="medium" style={{ flex: 1 }}>
           <LinearGradient
             colors={[shelf.green, shelf.teal]}
             start={{ x: 0, y: 0 }}

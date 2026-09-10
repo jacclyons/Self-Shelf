@@ -25,6 +25,7 @@ import {
 import { getDeviceId, useAuth } from '@/state/auth';
 import { Icon } from '@/ui/Bits';
 import { GlassSurface } from '@/ui/Glass';
+import { Wordmark } from '@/ui/Logo';
 import { Press } from '@/ui/Press';
 import { radius, readingColumn, shelf, type as type_, useTheme } from '@/ui/theme';
 
@@ -38,7 +39,6 @@ export default function SignIn() {
 
   const [step, setStep] = useState<Step>('server');
   const [server, setServer] = useState('');
-  const [serverName, setServerName] = useState<string | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -63,9 +63,8 @@ export default function SignIn() {
     try {
       const url = normalizeServerUrl(server);
       const deviceId = await getDeviceId();
-      const info = await probeServer(url, deviceId);
+      await probeServer(url, deviceId);
       setServer(url);
-      setServerName(info.ServerName ?? 'Jellyfin');
       setStep('credentials');
       try {
         setQuickAvailable(await quickConnectEnabled(url, deviceId));
@@ -149,41 +148,13 @@ export default function SignIn() {
           ]}
           keyboardShouldPersistTaps="handled"
         >
-          <Animated.View entering={FadeInDown.duration(600).springify()} style={{ marginBottom: 36 }}>
-            <LinearGradient
-              colors={[shelf.green, shelf.teal]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{
-                width: 62,
-                height: 62,
-                borderRadius: 18,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 22,
-                shadowColor: shelf.teal,
-                shadowOpacity: 0.4,
-                shadowRadius: 18,
-                shadowOffset: { width: 0, height: 8 },
-              }}
-            >
-              <Icon name="books.vertical.fill" size={30} color="#fff" />
-            </LinearGradient>
-
-            <Text style={[type_.largeTitle, { color: theme.text, letterSpacing: -0.8 }]}>
-              JellyShelf
-            </Text>
-            <Text style={[type_.body, { color: theme.textSecondary, marginTop: 6 }]}>
-              {step === 'server'
-                ? 'Your Jellyfin books, beautifully read.'
-                : `Signing in to ${serverName}`}
-            </Text>
+          <Animated.View entering={FadeInDown.duration(600).springify()} style={{ marginBottom: 36, alignItems: 'center' }}>
+            <Wordmark size={75} color={theme.text} />
           </Animated.View>
 
           {step === 'server' ? (
             <Animated.View entering={FadeIn.duration(300)} exiting={FadeOut.duration(150)}>
               <Field
-                label="Server address"
                 icon="server.rack"
                 value={server}
                 onChangeText={setServer}
