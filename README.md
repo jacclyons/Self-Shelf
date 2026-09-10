@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://jellyshelf.vercel.app"><strong>jellyshelf.vercel.app</strong></a>
+  <a href="https://self-shelf-web.vercel.app"><strong>self-shelf-web.vercel.app</strong></a>
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@ is pushed back up to Jellyfin when the server is reachable.
 
 ## Try it
 
-- **Web:** [jellyshelf.vercel.app](https://jellyshelf.vercel.app) is open to everyone. Sign in with
+- **Web:** [self-shelf-web.vercel.app](https://self-shelf-web.vercel.app) is open to everyone. Sign in with
   your own Jellyfin server and start reading in the browser.
 - **iOS:** The native app is being tested through TestFlight.
 
@@ -125,3 +125,4 @@ assets/
 - Nothing leaves your device except calls to your own Jellyfin server. There is no analytics, no
   account and no third-party backend.
 - Sessions are kept in the iOS keychain via `expo-secure-store`.
+- Claude Code was used throughout development of this project, alongside hand-written code and review.
