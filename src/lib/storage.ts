@@ -35,7 +35,7 @@ function migrateLegacyLayout() {
 }
 
 /** Bump when reader.html or a vendored library changes so devices re-copy. */
-const ENGINE_VERSION = 7;
+const ENGINE_VERSION = 9;
 const ENGINE_VERSION_KEY = 'engine.version';
 
 const ENGINE_FILES: { name: string; module: number }[] = [
@@ -116,6 +116,9 @@ export function isDownloaded(itemId: string): boolean {
   forgetDownload(itemId);
   return false;
 }
+
+/** Web cannot keep offline copies; native always can. */
+export const canDownload = true;
 
 export interface DownloadHandle {
   promise: Promise<File>;

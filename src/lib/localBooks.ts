@@ -150,6 +150,9 @@ export function localFileFor(id: string): File | null {
 }
 
 /** Copies a picked file into the visible folder so it stays put. */
+/** Web has no Files folder to import from; native does. */
+export const canImport = true;
+
 export async function importBooks(): Promise<number> {
   const result = await File.pickFileAsync({
     multipleFiles: true,

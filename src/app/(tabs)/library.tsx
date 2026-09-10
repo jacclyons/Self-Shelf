@@ -1,27 +1,20 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  ScrollView,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ItemQuery } from '@/api/client';
 import { useLibraries, useLibraryBooks, useLocalBooks } from '@/api/hooks';
 import type { BaseItem } from '@/api/types';
 import { useAuth } from '@/state/auth';
-import { importBooks } from '@/lib/localBooks';
+import { showAlert } from '@/lib/alert';
+import { canImport, importBooks } from '@/lib/localBooks';
 import { isDownloaded } from '@/lib/storage';
 import { Chip, EmptyState, Icon } from '@/ui/Bits';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
 import { BookTile } from '@/ui/Shelf';
-import { radius, type as type_, useTheme } from '@/ui/theme';
+import { contentColumn, maxContentWidth, radius, tabBarInset, type as type_, useTheme } from '@/ui/theme';
 
 type SortKey = 'SortName' | 'DateCreated' | 'CommunityRating' | 'ProductionYear';
 
@@ -96,9 +89,12 @@ export default function Library() {
   }, [books.data, filter, local.data, source]);
 
   // Three columns on a phone, more as the window grows (iPad, Stage Manager).
-  const columns = Math.max(3, Math.floor(width / 132));
+  // The grid is laid out against the content column, not the window, so a wide
+  // browser gets a readable grid rather than a dozen tiny columns.
+  const gridWidth = Math.min(width, maxContentWidth);
+  const columns = Math.max(3, Math.floor(gridWidth / 132));
   const gutter = 18;
-  const tileWidth = (width - gutter * (columns + 1)) / columns;
+  const tileWidth = (gridWidth - gutter * (columns + 1)) / columns;
 
   const loadMore = useCallback(() => {
     if (books.hasNextPage && !books.isFetchingNextPage) books.fetchNextPage();
@@ -116,12 +112,12 @@ export default function Library() {
       const count = await importBooks();
       await local.refetch();
       if (count === 0) return;
-      Alert.alert(
+      showAlert(
         'Added to your shelf',
         `${count} book${count === 1 ? '' : 's'} copied into the JellyShelf folder.`,
       );
     } catch (error) {
-      Alert.alert("Couldn't import", (error as Error).message ?? 'Please try again.');
+      showAlert("Couldn't import", (error as Error).message ?? 'Please try again.');
     } finally {
       setImporting(false);
     }
@@ -135,11 +131,14 @@ export default function Library() {
         numColumns={columns}
         keyExtractor={(item: BaseItem) => item.Id}
         contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={{
-          paddingTop: insets.top + 8,
-          paddingBottom: insets.bottom + 130,
-          paddingHorizontal: gutter,
-        }}
+        contentContainerStyle={[
+          contentColumn,
+          {
+            paddingTop: insets.top + 8 + tabBarInset,
+            paddingBottom: insets.bottom + 130,
+            paddingHorizontal: gutter,
+          },
+        ]}
         columnWrapperStyle={columns > 1 ? { gap: gutter } : undefined}
         ItemSeparatorComponent={() => <View style={{ height: 26 }} />}
         onEndReached={loadMore}
@@ -188,17 +187,21 @@ export default function Library() {
                 selected={source === 'jellyfin'}
                 onPress={() => setSource('jellyfin')}
               />
-              <Chip
-                label="On This iPhone"
-                icon="iphone"
-                selected={source === 'local'}
-                onPress={() => setSource('local')}
-              />
-              <Chip
-                label={importing ? 'Importing…' : 'Import…'}
-                icon="plus"
-                onPress={runImport}
-              />
+              {canImport ? (
+                <>
+                  <Chip
+                    label="On This iPhone"
+                    icon="iphone"
+                    selected={source === 'local'}
+                    onPress={() => setSource('local')}
+                  />
+                  <Chip
+                    label={importing ? 'Importing…' : 'Import…'}
+                    icon="plus"
+                    onPress={runImport}
+                  />
+                </>
+              ) : null}
             </ScrollView>
 
             <ScrollView

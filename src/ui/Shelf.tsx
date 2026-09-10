@@ -8,7 +8,7 @@ import type { Session } from '@/api/client';
 import { useToggleFavorite, useToggleFinished } from '@/api/hooks';
 import { authorOf, type BaseItem } from '@/api/types';
 import { isLocalId } from '@/lib/localBooks';
-import { deleteDownload, downloadBook, isDownloaded } from '@/lib/storage';
+import { canDownload, deleteDownload, downloadBook, isDownloaded } from '@/lib/storage';
 import { useAuth } from '@/state/auth';
 import { clearProgress, getProgress } from '@/state/db';
 
@@ -68,34 +68,45 @@ export function BookTile({ item, session, width, showProgress = true, onPress }:
       .finally(() => setDownloadPct(null));
   }, [item, refresh, session]);
 
-  const actions: QuickAction[] = [
-    // A book that already lives on the device has nothing to download; what it
-    // usually wants instead is a real title and cover.
-    local
-      ? {
+  // A book that already lives on the device has nothing to download; what it
+  // usually wants instead is a real title and cover. The browser keeps no
+  // offline copies at all, so it gets neither.
+  const fileActions: QuickAction[] = local
+    ? [
+        {
           key: 'metadata',
           label: 'Find Metadata…',
           icon: 'sparkle.magnifyingglass',
           onPress: () => setMetadataOpen(true),
-        }
+        },
+      ]
+    : !canDownload
+      ? []
       : downloaded
-        ? {
-            key: 'download',
-            label: 'Remove Download',
-            icon: 'trash',
-            destructive: true,
-            onPress: () => {
-              deleteDownload(item.Id);
-              refresh();
+        ? [
+            {
+              key: 'download',
+              label: 'Remove Download',
+              icon: 'trash',
+              destructive: true,
+              onPress: () => {
+                deleteDownload(item.Id);
+                refresh();
+              },
             },
-          }
-        : {
-            key: 'download',
-            label: 'Download',
-            icon: 'arrow.down.circle',
-            disabled: downloadPct !== null,
-            onPress: startDownload,
-          },
+          ]
+        : [
+            {
+              key: 'download',
+              label: 'Download',
+              icon: 'arrow.down.circle',
+              disabled: downloadPct !== null,
+              onPress: startDownload,
+            },
+          ];
+
+  const actions: QuickAction[] = [
+    ...fileActions,
     {
       key: 'favorite',
       label: isFavorite ? 'Remove from Readlist' : 'Add to Readlist',

@@ -1,13 +1,21 @@
 import * as SQLite from 'expo-sqlite';
 
+import type {
+  BookmarkRow,
+  DownloadRow,
+  HighlightRow,
+  LocalBookRow,
+  ProgressRow,
+} from './rows';
+
+export type { BookmarkRow, DownloadRow, HighlightRow, LocalBookRow, ProgressRow };
+
 /**
  * Local-first store. Everything the reader needs (position, bookmarks,
  * highlights, prefs) lives here so the app opens instantly and works offline;
  * progress is mirrored up to Jellyfin opportunistically.
  */
-const db = SQLite.openDatabaseSync('jellyshelf.db');
-
-db.execSync(`
+const SCHEMA = `
 PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS progress (
@@ -66,44 +74,36 @@ CREATE TABLE IF NOT EXISTS kv (
   key   TEXT PRIMARY KEY NOT NULL,
   value TEXT NOT NULL
 );
-`);
+`;
 
-export interface ProgressRow {
-  item_id: string;
-  percent: number;
-  location: string | null;
-  finished: number;
-  updated_at: number;
-  synced_at: number;
-}
+let handle: SQLite.SQLiteDatabase | null = null;
 
-export interface BookmarkRow {
-  id: string;
-  item_id: string;
-  location: string;
-  label: string | null;
-  excerpt: string | null;
-  percent: number;
-  created_at: number;
-}
+/**
+ * Every query in this file goes through here. The real handle cannot exist
+ * until `initDatabase` has resolved, so touching a query before that is a
+ * programming error worth surfacing rather than papering over.
+ */
+const db = new Proxy({} as SQLite.SQLiteDatabase, {
+  get(_target, prop) {
+    if (!handle) throw new Error('Database used before initDatabase() resolved.');
+    const value = Reflect.get(handle, prop, handle);
+    return typeof value === 'function' ? value.bind(handle) : value;
+  },
+});
 
-export interface HighlightRow {
-  id: string;
-  item_id: string;
-  location: string;
-  text: string;
-  note: string | null;
-  color: string;
-  percent: number;
-  created_at: number;
-}
+let opening: Promise<void> | null = null;
 
-export interface DownloadRow {
-  item_id: string;
-  uri: string;
-  format: string;
-  size: number;
-  downloaded_at: number;
+/**
+ * Opens the database and applies the schema. Called once from the root layout,
+ * which holds the splash screen until it resolves. The browser has its own
+ * store in `db.web.ts`; see the note there for why it is not SQLite.
+ */
+export function initDatabase(): Promise<void> {
+  opening ??= (async () => {
+    handle = SQLite.openDatabaseSync('jellyshelf.db');
+    handle.execSync(SCHEMA);
+  })();
+  return opening;
 }
 
 /* -------------------------------- progress ------------------------------- */
@@ -251,18 +251,6 @@ export function forgetDownload(itemId: string) {
 }
 
 /* ------------------------------ local books ------------------------------ */
-
-export interface LocalBookRow {
-  id: string;
-  uri: string;
-  title: string;
-  author: string | null;
-  format: string;
-  size: number;
-  cover_uri: string | null;
-  favorite: number;
-  added_at: number;
-}
 
 export function listLocalBooks(): LocalBookRow[] {
   return db.getAllSync<LocalBookRow>('SELECT * FROM local_books ORDER BY title COLLATE NOCASE');

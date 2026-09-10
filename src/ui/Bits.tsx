@@ -1,58 +1,14 @@
-import { SymbolView, type SymbolViewProps } from 'expo-symbols';
+import type { SymbolViewProps } from 'expo-symbols';
 import type { ReactNode } from 'react';
-import { Platform, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { Press } from './Press';
 import { radius, type as type_, useTheme } from './theme';
 
-/* --------------------------------- icons --------------------------------- */
+import { Icon } from './Icon';
 
-export function Icon({
-  name,
-  size = 20,
-  color,
-  weight = 'semibold',
-  style,
-}: {
-  name: SymbolViewProps['name'];
-  size?: number;
-  color?: string;
-  weight?: SymbolViewProps['weight'];
-  style?: StyleProp<ViewStyle>;
-}) {
-  const theme = useTheme();
-  const tint = color ?? theme.text;
-
-  if (Platform.OS !== 'ios') {
-    // Android has no SF Symbols; a neutral dot keeps layout stable.
-    return (
-      <View
-        style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }, style]}
-      >
-        <View
-          style={{
-            width: size * 0.6,
-            height: size * 0.6,
-            borderRadius: size,
-            backgroundColor: tint,
-          }}
-        />
-      </View>
-    );
-  }
-
-  return (
-    <SymbolView
-      name={name}
-      size={size}
-      tintColor={tint}
-      weight={weight}
-      resizeMode="scaleAspectFit"
-      style={[{ width: size, height: size }, style]}
-    />
-  );
-}
+export { Icon };
 
 /* ------------------------------ progress ring ----------------------------- */
 

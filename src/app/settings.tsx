@@ -1,21 +1,27 @@
 import { useRouter } from 'expo-router';
+import type { SymbolViewProps } from 'expo-symbols';
 import { useCallback, useState } from 'react';
-import { Alert, Linking, ScrollView, Text, View } from 'react-native';
+import { Linking, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CLIENT_VERSION } from '@/api/client';
+import { showAlert } from '@/lib/alert';
+import { useDismissTo } from '@/lib/navigation';
 import { clearAllDownloads, downloadsSize, formatBytes } from '@/lib/storage';
+import { useAppearance, type AppearanceChoice } from '@/state/appearance';
 import { useAuth } from '@/state/auth';
 import { listDownloads, wipeLocalData } from '@/state/db';
 import { Icon } from '@/ui/Bits';
+import { CloseButton } from '@/ui/CloseButton';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
-import { radius, type as type_, useTheme } from '@/ui/theme';
+import { radius, readingColumn, type as type_, useTheme } from '@/ui/theme';
 
 export default function Settings() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const dismiss = useDismissTo('/');
   const { session, signOut } = useAuth();
 
   const [downloads, setDownloads] = useState(() => listDownloads().length);
@@ -31,8 +37,9 @@ export default function Settings() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.bg }}
-      contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40 }}
+      contentContainerStyle={[readingColumn, { padding: 20, paddingBottom: insets.bottom + 40 }]}
     >
+      <CloseButton onPress={dismiss} placement="inline" />
       <Text style={[type_.title1, { color: theme.text, marginBottom: 22, letterSpacing: -0.6 }]}>
         Settings
       </Text>
@@ -68,6 +75,10 @@ export default function Settings() {
         </View>
       </GlassSurface>
 
+      <Section title="Appearance">
+        <AppearanceControl />
+      </Section>
+
       <Section title="Storage">
         <Row
           icon="arrow.down.circle"
@@ -79,7 +90,7 @@ export default function Settings() {
           label="Remove all downloads"
           destructive
           onPress={() =>
-            Alert.alert(
+            showAlert(
               'Remove all downloads?',
               'Your books stay on the server. Reading positions are kept.',
               [
@@ -125,7 +136,7 @@ export default function Settings() {
         haptic="medium"
         style={{ marginTop: 28 }}
         onPress={() =>
-          Alert.alert('Sign out?', 'Downloads and reading positions on this device are removed.', [
+          showAlert('Sign out?', 'Downloads and reading positions on this device are removed.', [
             { text: 'Cancel', style: 'cancel' },
             {
               text: 'Sign Out',
@@ -153,6 +164,62 @@ export default function Settings() {
         </View>
       </Press>
     </ScrollView>
+  );
+}
+
+const APPEARANCE_OPTIONS: { value: AppearanceChoice; label: string; icon: SymbolViewProps['name'] }[] = [
+  { value: 'system', label: 'System', icon: 'circle.lefthalf.filled' },
+  { value: 'light', label: 'Light', icon: 'sun.max' },
+  { value: 'dark', label: 'Dark', icon: 'moon' },
+];
+
+/** Three-way appearance choice. `System` is the default and follows the OS. */
+function AppearanceControl() {
+  const theme = useTheme();
+  const { choice, setChoice } = useAppearance();
+
+  return (
+    <View style={{ flexDirection: 'row', gap: 8, padding: 12 }}>
+      {APPEARANCE_OPTIONS.map((option) => {
+        const selected = choice === option.value;
+        return (
+          <Press
+            key={option.value}
+            haptic="selection"
+            scaleTo={0.96}
+            style={{ flex: 1 }}
+            onPress={() => setChoice(option.value)}
+          >
+            <View
+              style={{
+                paddingVertical: 13,
+                borderRadius: radius.md,
+                gap: 6,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: selected ? theme.tint : theme.bgElevated,
+                borderWidth: 1,
+                borderColor: selected ? 'transparent' : theme.separator,
+              }}
+            >
+              <Icon
+                name={option.icon}
+                size={17}
+                color={selected ? '#FFFFFF' : theme.textSecondary}
+              />
+              <Text
+                style={[
+                  type_.footnote,
+                  { fontWeight: '600', color: selected ? '#FFFFFF' : theme.textSecondary },
+                ]}
+              >
+                {option.label}
+              </Text>
+            </View>
+          </Press>
+        );
+      })}
+    </View>
   );
 }
 

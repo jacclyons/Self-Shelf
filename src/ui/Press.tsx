@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import type { ReactNode } from 'react';
-import { Pressable, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, Pressable, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -28,23 +28,31 @@ export function Press({
   hitSlop,
 }: PressProps) {
   const pressed = useSharedValue(0);
+  // A pointer expects something to happen before it commits to a click.
+  const hovered = useSharedValue(0);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
       { scale: withSpring(1 - pressed.value * (1 - scaleTo), { damping: 22, stiffness: 340 }) },
     ],
-    opacity: withSpring(1 - pressed.value * 0.12, { damping: 22, stiffness: 340 }),
+    opacity: withSpring(1 - pressed.value * 0.12 - hovered.value * 0.08, {
+      damping: 22,
+      stiffness: 340,
+    }),
   }));
 
   return (
     <AnimatedPressable
       disabled={disabled}
       hitSlop={hitSlop}
+      onHoverIn={Platform.OS === 'web' ? () => { hovered.value = 1; } : undefined}
+      onHoverOut={Platform.OS === 'web' ? () => { hovered.value = 0; } : undefined}
       onPressIn={() => {
         pressed.value = 1;
       }}
       onPressOut={() => {
         pressed.value = 0;
+        hovered.value = 0;
       }}
       onPress={() => {
         if (haptic === 'selection') Haptics.selectionAsync();

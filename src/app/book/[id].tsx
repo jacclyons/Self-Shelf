@@ -2,13 +2,16 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { imageUrl } from '@/api/client';
 import { useBook, useToggleFavorite, useToggleFinished } from '@/api/hooks';
 import { authorOf, formatOf, isReadable } from '@/api/types';
+import { showAlert } from '@/lib/alert';
+import { useDismissTo } from '@/lib/navigation';
 import {
+  canDownload,
   deleteDownload,
   downloadBook,
   formatBytes,
@@ -21,8 +24,9 @@ import { clearProgress, getDownload, getProgress } from '@/state/db';
 import { EmptyState, Icon, ProgressBar } from '@/ui/Bits';
 import { BookCover } from '@/ui/BookCover';
 import { GlassSurface } from '@/ui/Glass';
+import { CloseButton } from '@/ui/CloseButton';
 import { Press } from '@/ui/Press';
-import { radius, type as type_, useTheme } from '@/ui/theme';
+import { contentColumn, radius, type as type_, useTheme } from '@/ui/theme';
 
 const BACKDROP_HEIGHT = 440;
 
@@ -40,6 +44,7 @@ export default function BookDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useTheme();
   const router = useRouter();
+  const dismiss = useDismissTo('/');
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const { width } = useWindowDimensions();
@@ -77,7 +82,7 @@ export default function BookDetail() {
       refresh();
     } catch (error) {
       if ((error as Error)?.name !== 'AbortError') {
-        Alert.alert('Download failed', (error as Error).message ?? 'Please try again.');
+        showAlert('Download failed', (error as Error).message ?? 'Please try again.');
       }
     } finally {
       setDownloading(false);
@@ -103,7 +108,7 @@ export default function BookDetail() {
           title="Book unavailable"
           message={(book.error as Error)?.message}
           action="Close"
-          onAction={() => router.back()}
+          onAction={dismiss}
         />
       </View>
     );
@@ -118,6 +123,7 @@ export default function BookDetail() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <CloseButton onPress={dismiss} />
       {backdrop ? (
         <>
           <Image
@@ -142,7 +148,7 @@ export default function BookDetail() {
       ) : null}
 
       <ScrollView
-        contentContainerStyle={{ paddingTop: 26, paddingBottom: insets.bottom + 40 }}
+        contentContainerStyle={[contentColumn, { paddingTop: 26, paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={{ alignItems: 'center', paddingHorizontal: 24 }}>
@@ -224,6 +230,7 @@ export default function BookDetail() {
         </View>
 
         <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginTop: 12 }}>
+          {canDownload ? (
           <ActionTile
             icon={
               local
@@ -247,7 +254,7 @@ export default function BookDetail() {
             onPress={() => {
               // A file you put in the Files folder is yours to remove there.
               if (local) {
-                Alert.alert(
+                showAlert(
                   'Stored on this iPhone',
                   'This book lives in the JellyShelf folder in the Files app. Delete it there to remove it.',
                 );
@@ -256,7 +263,7 @@ export default function BookDetail() {
               if (downloading) {
                 handle?.cancel();
               } else if (downloaded) {
-                Alert.alert('Remove download?', 'The book stays on your server.', [
+                showAlert('Remove download?', 'The book stays on your server.', [
                   { text: 'Cancel', style: 'cancel' },
                   {
                     text: 'Remove',
@@ -272,6 +279,7 @@ export default function BookDetail() {
               }
             }}
           />
+          ) : null}
           <ActionTile
             icon={isFavorite ? 'heart.fill' : 'heart'}
             label="Readlist"

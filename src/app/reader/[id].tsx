@@ -1,12 +1,11 @@
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Text,
   useWindowDimensions,
   View,
@@ -17,6 +16,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBook, useProgressSync } from '@/api/hooks';
 import { engineKindFor, formatOf } from '@/api/types';
 import { isLocalId, localFileFor } from '@/lib/localBooks';
+import { useDismissTo } from '@/lib/navigation';
+import { promptForText } from '@/lib/prompt';
 import { downloadBook, ensureReaderEngine, localBookFile } from '@/lib/storage';
 import { useAuth } from '@/state/auth';
 import {
@@ -44,7 +45,7 @@ import {
 import { EmptyState, Icon, ProgressBar } from '@/ui/Bits';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
-import { radius, type as type_ } from '@/ui/theme';
+import { maxReaderWidth, radius, readerColumn, type as type_ } from '@/ui/theme';
 
 import { AppearanceSheet } from '@/reader/AppearanceSheet';
 import { ContentsSheet } from '@/reader/ContentsSheet';
@@ -60,9 +61,11 @@ const IDLE_FOOTER = 26;
 
 export default function Reader() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
+  const dismiss = useDismissTo(id ? `/book/${id}` : '/');
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  // Chrome lines up with the text column rather than spanning the whole window.
+  const chromeWidth = Math.min(width, maxReaderWidth);
   const { session } = useAuth();
   const flushProgress = useProgressSync();
   useKeepAwake();
@@ -230,6 +233,12 @@ export default function Reader() {
           lastSelection.current = { text: event.text, location: event.location };
           break;
 
+        case 'dismiss':
+          // Escape inside the engine. Saves first, the way the close button does.
+          persist();
+          dismiss();
+          break;
+
         case 'error':
           setError(event.message);
           break;
@@ -238,7 +247,7 @@ export default function Reader() {
           break;
       }
     },
-    [id, persist],
+    [id, persist, dismiss],
   );
 
   const onSelectionAction = useCallback(
@@ -266,7 +275,7 @@ export default function Reader() {
       if (action === 'highlight') {
         create(null);
       } else {
-        Alert.prompt('Add note', selection.text.slice(0, 120), (note) => create(note || null), 'plain-text');
+        promptForText('Add note', selection.text.slice(0, 120), create);
       }
     },
     [id],
@@ -308,8 +317,8 @@ export default function Reader() {
 
   const close = useCallback(() => {
     persist();
-    router.back();
-  }, [persist, router]);
+    dismiss();
+  }, [persist, dismiss]);
 
   /* --------------------------------- render -------------------------------- */
 
@@ -321,7 +330,7 @@ export default function Reader() {
           title="Couldn't open this book"
           message={error}
           action="Close"
-          onAction={() => router.back()}
+          onAction={dismiss}
         />
       </View>
     );
@@ -410,28 +419,33 @@ export default function Reader() {
           style={{
             position: 'absolute',
             bottom: insets.bottom + 5,
-            left: 22,
-            right: 22,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
+            left: 0,
+            right: 0,
           }}
         >
-          <Text
+          <View
             style={[
-              type_.caption2,
-              { color: theme.fg, opacity: 0.32, fontVariant: ['tabular-nums'] },
+              readerColumn,
+              { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 22 },
             ]}
           >
-            {footerLabel(position, displayPercent)}
-          </Text>
-          <Text
-            style={[
-              type_.caption2,
-              { color: theme.fg, opacity: 0.32, fontVariant: ['tabular-nums'] },
-            ]}
-          >
-            {remainingLabel(position, displayPercent)}
-          </Text>
+            <Text
+              style={[
+                type_.caption2,
+                { color: theme.fg, opacity: 0.32, fontVariant: ['tabular-nums'] },
+              ]}
+            >
+              {footerLabel(position, displayPercent)}
+            </Text>
+            <Text
+              style={[
+                type_.caption2,
+                { color: theme.fg, opacity: 0.32, fontVariant: ['tabular-nums'] },
+              ]}
+            >
+              {remainingLabel(position, displayPercent)}
+            </Text>
+          </View>
         </Animated.View>
       ) : null}
 
@@ -445,15 +459,19 @@ export default function Reader() {
             <GlassSurface
               variant="regular"
               colorScheme={theme.dark ? 'dark' : 'light'}
-              style={{
-                paddingTop: insets.top + 6,
-                paddingBottom: 10,
-                paddingHorizontal: 14,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-              }}
+              style={{ paddingTop: insets.top + 6, paddingBottom: 10 }}
             >
+              <View
+                style={[
+                  readerColumn,
+                  {
+                    paddingHorizontal: 14,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                  },
+                ]}
+              >
               <ChromeButton icon="chevron.down" onPress={close} theme={theme} />
               <View style={{ flex: 1, paddingHorizontal: 6 }}>
                 <Text numberOfLines={1} style={[type_.footnote, { color: theme.fg, fontWeight: '600' }]}>
@@ -490,6 +508,7 @@ export default function Reader() {
                 }}
                 theme={theme}
               />
+              </View>
             </GlassSurface>
           </Animated.View>
 
@@ -501,16 +520,12 @@ export default function Reader() {
             <GlassSurface
               variant="regular"
               colorScheme={theme.dark ? 'dark' : 'light'}
-              style={{
-                paddingTop: 12,
-                paddingBottom: insets.bottom + 12,
-                paddingHorizontal: 22,
-                gap: 2,
-              }}
+              style={{ paddingTop: 12, paddingBottom: insets.bottom + 12 }}
             >
+              <View style={[readerColumn, { paddingHorizontal: 22, gap: 2 }]}>
               <Scrubber
                 percent={displayPercent}
-                width={width - 44}
+                width={chromeWidth - 44}
                 color={theme.accent}
                 trackColor={theme.dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)'}
                 onScrubbing={(active, value) => setScrubPercent(active ? value : null)}
@@ -526,6 +541,7 @@ export default function Reader() {
                 <Text style={[type_.caption2, { color: theme.fg, opacity: 0.55 }]}>
                   {remainingLabel(position, displayPercent)}
                 </Text>
+              </View>
               </View>
             </GlassSurface>
           </Animated.View>

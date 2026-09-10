@@ -2,15 +2,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { applyAppChrome } from '@/lib/appChrome';
 import { hasSeenOnboarding } from '@/lib/onboarding';
+import { installWebChrome } from '@/lib/webChrome';
+import { AppearanceProvider, useAppearance } from '@/state/appearance';
 import { AuthProvider, useAuth } from '@/state/auth';
+import { initDatabase } from '@/state/db';
 import { useTheme } from '@/ui/theme';
 
 SplashScreen.preventAutoHideAsync();
+installWebChrome();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +32,12 @@ function RootNavigator() {
   const segments = useSegments();
   const router = useRouter();
   const theme = useTheme();
+  const { choice, scheme } = useAppearance();
+
+  // Keep the surfaces React does not own in step with the chosen appearance.
+  useEffect(() => {
+    applyAppChrome(scheme, theme.bg, choice);
+  }, [scheme, theme.bg, choice]);
 
   useEffect(() => {
     if (restoring) return;
@@ -51,7 +62,7 @@ function RootNavigator() {
 
   return (
     <>
-      <StatusBar style="auto" />
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -80,14 +91,32 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  // The whole tree reads SQLite synchronously, so nothing may mount until the
+  // database is open. The splash screen is still up, so this is invisible.
+  const [dbReady, setDbReady] = useState(false);
+
+  useEffect(() => {
+    initDatabase().then(
+      () => setDbReady(true),
+      (error) => {
+        console.error('Could not open the local database.', error);
+        setDbReady(true);
+      },
+    );
+  }, []);
+
+  if (!dbReady) return null;
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <RootNavigator />
-          </AuthProvider>
-        </QueryClientProvider>
+        <AppearanceProvider>
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+              <RootNavigator />
+            </AuthProvider>
+          </QueryClientProvider>
+        </AppearanceProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

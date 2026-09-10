@@ -19,7 +19,7 @@ import { BookCover } from '@/ui/BookCover';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
 import { getProgress } from '@/state/db';
-import { radius, type as type_, useTheme } from '@/ui/theme';
+import { contentColumn, radius, tabBarInset, type as type_, useTheme } from '@/ui/theme';
 
 export default function Search() {
   const theme = useTheme();
@@ -49,10 +49,10 @@ export default function Search() {
         keyExtractor={(item: BaseItem) => item.Id}
         keyboardDismissMode="on-drag"
         contentInsetAdjustmentBehavior="never"
-        contentContainerStyle={{
-          paddingTop: insets.top + 8,
-          paddingBottom: insets.bottom + 130,
-        }}
+        contentContainerStyle={[
+          contentColumn,
+          { paddingTop: insets.top + 8 + tabBarInset, paddingBottom: insets.bottom + 130 },
+        ]}
         ListHeaderComponent={
           <View style={{ paddingHorizontal: 20, marginBottom: 18 }}>
             <Text

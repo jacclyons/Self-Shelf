@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
-import * as SecureStore from 'expo-secure-store';
 import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { deleteSecret, getSecret, setSecret } from './secretStore';
 import {
   authenticateByName,
   authenticateWithQuickConnect,
@@ -15,10 +15,10 @@ const SESSION_KEY = 'jellyshelf.session.v1';
 const DEVICE_KEY = 'jellyshelf.deviceId.v1';
 
 async function getDeviceId(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(DEVICE_KEY);
+  const existing = await getSecret(DEVICE_KEY);
   if (existing) return existing;
   const id = Crypto.randomUUID();
-  await SecureStore.setItemAsync(DEVICE_KEY, id);
+  await setSecret(DEVICE_KEY, id);
   return id;
 }
 
@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const raw = await SecureStore.getItemAsync(SESSION_KEY);
+        const raw = await getSecret(SESSION_KEY);
         if (!cancelled && raw) setSession(JSON.parse(raw) as Session);
       } catch {
         // A corrupt keychain entry should never wedge the app at a blank screen.
@@ -55,8 +55,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const persist = useCallback(async (next: Session | null) => {
     setSession(next);
-    if (next) await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(next));
-    else await SecureStore.deleteItemAsync(SESSION_KEY);
+    if (next) await setSecret(SESSION_KEY, JSON.stringify(next));
+    else await deleteSecret(SESSION_KEY);
   }, []);
 
   const signIn = useCallback<AuthState['signIn']>(

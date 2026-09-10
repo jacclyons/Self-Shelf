@@ -104,7 +104,11 @@
 (function () {
   'use strict';
 
-  var RN = window.ReactNativeWebView;
+  /* On iOS the host is a WKWebView; on web it is a same-origin iframe, which
+     reaches its host with postMessage instead. Both speak the same JSON. */
+  var RN = window.ReactNativeWebView || (window.parent !== window ? {
+    postMessage: function (payload) { window.parent.postMessage(payload, '*'); }
+  } : null);
   function post(msg) { try { RN && RN.postMessage(JSON.stringify(msg)); } catch (e) {} }
   function fail(message) { setStatus(message, false); post({ type: 'error', message: String(message) }); }
   function setStatus(text, spinning) {
@@ -279,9 +283,30 @@
     }
   }
 
+  /* Keyboard paging. A browser reader is expected to answer the arrow keys,
+     and epub.js paints each chapter into its own iframe, so the listener has
+     to be attached per-document rather than once on the window. Harmless on
+     iOS, where it only ever fires for an attached keyboard. */
+  function bindKeys(doc) {
+    doc.addEventListener('keydown', function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var key = e.key;
+      var handled = true;
+
+      if (key === 'ArrowRight' || key === 'PageDown') turn(1);
+      else if (key === 'ArrowLeft' || key === 'PageUp') turn(-1);
+      else if (key === ' ' || key === 'Spacebar') turn(e.shiftKey ? -1 : 1);
+      else if (key === 'Escape') post({ type: 'dismiss' });
+      else handled = false;
+
+      if (handled) { e.preventDefault(); e.stopPropagation(); }
+    });
+  }
+
   function bindContents(contents) {
     var doc = contents.document;
     attachTaps(doc.documentElement, { onTurn: turn });
+    bindKeys(doc);
     // Long-press selection needs text selection enabled inside the frame.
     contents.addStylesheetRules({ 'body': { '-webkit-user-select': 'text', 'user-select': 'text' } });
   }
@@ -981,6 +1006,7 @@
   attachTaps(document.documentElement, { onTurn: turn });
   attachZoom(document.getElementById('pages'));
 
+  bindKeys(document);
   post({ type: 'ready' });
 })();
 </script>

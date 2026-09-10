@@ -14,11 +14,12 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { SymbolViewProps } from 'expo-symbols';
 
+import { useDismissTo } from '@/lib/navigation';
 import { markOnboardingSeen } from '@/lib/onboarding';
 import { useAuth } from '@/state/auth';
 import { Icon } from '@/ui/Bits';
 import { Press } from '@/ui/Press';
-import { radius, shelf, type as type_, useTheme } from '@/ui/theme';
+import { radius, readingColumn, shelf, type as type_, useTheme } from '@/ui/theme';
 
 interface Page {
   /** The opening page shows the real app mark; the rest use symbols on the brand gradient. */
@@ -62,20 +63,22 @@ export default function Welcome() {
   const { session } = useAuth();
   const replay = session !== null;
 
+  const dismiss = useDismissTo('/');
+
   const scroller = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   const last = index === PAGES.length - 1;
 
   const finish = useCallback(() => {
     if (replay) {
-      router.back();
+      dismiss();
       return;
     }
     // Recorded before navigating so the gate in `_layout` sees it on the very next
     // segment change and does not bounce us straight back here.
     markOnboardingSeen();
     router.replace('/sign-in');
-  }, [replay, router]);
+  }, [replay, router, dismiss]);
 
   const advance = useCallback(() => {
     if (last) return finish();
@@ -108,6 +111,11 @@ export default function Welcome() {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
+        // `onMomentumScrollEnd` never fires on web, which would leave `index`
+        // stuck at 0 and every Continue scrolling to the same page. Tracking
+        // the offset as it moves works on both platforms.
+        onScroll={onScrollEnd}
+        scrollEventThrottle={16}
         onMomentumScrollEnd={onScrollEnd}
         style={{ flex: 1 }}
       >
@@ -116,6 +124,7 @@ export default function Welcome() {
             key={page.title}
             style={{ width, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}
           >
+            <View style={[readingColumn, { alignItems: 'center' }]}>
             {page.mark ? (
               <Image
                 source={require('../../assets/images/splash-icon.png')}
@@ -148,6 +157,7 @@ export default function Welcome() {
             <Text style={[type_.body, { color: theme.textSecondary, textAlign: 'center' }]}>
               {page.body}
             </Text>
+            </View>
           </View>
         ))}
       </ScrollView>
@@ -166,7 +176,12 @@ export default function Welcome() {
         ))}
       </View>
 
-      <View style={{ paddingHorizontal: 24, paddingBottom: Math.max(insets.bottom, 20) + 8 }}>
+      <View
+        style={[
+          readingColumn,
+          { paddingHorizontal: 24, paddingBottom: Math.max(insets.bottom, 20) + 8 },
+        ]}
+      >
         <Press onPress={advance} haptic="medium">
           <LinearGradient
             colors={[shelf.green, shelf.teal]}

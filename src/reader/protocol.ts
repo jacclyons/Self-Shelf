@@ -17,6 +17,8 @@ export type ReaderEvent =
   | { type: 'tap'; zone: 'left' | 'right' | 'center' }
   | { type: 'locations'; data: string }
   | { type: 'totalLocations'; total: number }
+  /** Escape from inside the engine; the host decides what closing means. */
+  | { type: 'dismiss' }
   | { type: 'error'; message: string }
   | { type: 'log'; message: string };
 

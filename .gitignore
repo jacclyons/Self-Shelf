@@ -6,3 +6,6 @@ android/
 *.log
 .DS_Store
 expo-env.d.ts
+
+# Generated from assets/reader by scripts/sync-web-reader.mjs
+public/reader/

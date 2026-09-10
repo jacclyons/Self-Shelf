@@ -9,7 +9,10 @@
     "android": "expo run:android",
     "prebuild": "expo prebuild --clean",
     "typecheck": "tsc --noEmit",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "sync:reader": "node scripts/sync-web-reader.mjs",
+    "web": "npm run sync:reader && expo start --web",
+    "export:web": "npm run sync:reader && expo export --platform web"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.2",
@@ -49,6 +52,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3"
   }
 }

@@ -1,4 +1,6 @@
-import { useColorScheme } from 'react-native';
+import { Platform, type ViewStyle } from 'react-native';
+
+import { useResolvedScheme } from '@/state/appearance';
 
 /**
  * JellyShelf accents with its own green→teal gradient and keeps everything else
@@ -80,8 +82,9 @@ const dark: Palette = {
   success: '#4BD08B',
 };
 
+/** The active palette, honouring the Appearance setting rather than only the OS. */
 export function useTheme(): Palette {
-  return useColorScheme() === 'dark' ? dark : light;
+  return useResolvedScheme() === 'dark' ? dark : light;
 }
 
 export const palettes = { light, dark };
@@ -110,3 +113,37 @@ export const radius = {
 } as const;
 
 export const spacing = (n: number) => n * 4;
+
+/**
+ * A browser window is far wider than a phone, and stretching a 54pt button
+ * across 2000px looks like a bug. Content sits in a centred column there;
+ * on device this is an empty style and changes nothing.
+ */
+export const maxContentWidth = Platform.OS === 'web' ? 900 : Infinity;
+
+export const contentColumn: ViewStyle =
+  Platform.OS === 'web'
+    ? { width: '100%', maxWidth: maxContentWidth, alignSelf: 'center' }
+    : {};
+
+/** The same, narrowed for prose and forms that read badly at full width. */
+export const readingColumn: ViewStyle =
+  Platform.OS === 'web' ? { width: '100%', maxWidth: 560, alignSelf: 'center' } : {};
+
+/**
+ * The reader's column on web, matched to the width the engine itself is given
+ * so the chrome lines up with the text rather than the window.
+ */
+export const maxReaderWidth = 980;
+
+export const readerColumn: ViewStyle =
+  Platform.OS === 'web'
+    ? { width: '100%', maxWidth: maxReaderWidth, alignSelf: 'center' }
+    : {};
+
+/**
+ * The tab bar is along the bottom on device but across the top of the window on
+ * web, where it floats over the content. Screens under it add this much room so
+ * their headers are not sitting behind the tabs.
+ */
+export const tabBarInset = Platform.OS === 'web' ? 64 : 0;

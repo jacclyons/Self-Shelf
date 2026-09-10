@@ -1,7 +1,8 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect } from 'react';
-import { Alert, AppState } from 'react-native';
+import { AppState } from 'react-native';
 
+import { showAlert } from '@/lib/alert';
 import { isLocalId, localItem, localItems, scanLocalBooks } from '@/lib/localBooks';
 import { useAuth } from '@/state/auth';
 import {
@@ -227,7 +228,7 @@ export function useToggleFavorite() {
     },
     onError: (error, { item, favorite }) => {
       patchItemEverywhere(client, item.Id, { IsFavorite: !favorite });
-      Alert.alert("Couldn't update", (error as Error).message ?? 'Please try again.');
+      showAlert("Couldn't update", (error as Error).message ?? 'Please try again.');
     },
     onSettled: () => invalidateItemQueries(client),
   });
@@ -254,7 +255,7 @@ export function useToggleFinished() {
     },
     onError: (error, { item, finished }) => {
       patchItemEverywhere(client, item.Id, { Played: !finished });
-      Alert.alert("Couldn't update", (error as Error).message ?? 'Please try again.');
+      showAlert("Couldn't update", (error as Error).message ?? 'Please try again.');
     },
     onSettled: () => invalidateItemQueries(client),
   });

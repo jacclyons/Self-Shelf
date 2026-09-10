@@ -26,7 +26,7 @@ import { getDeviceId, useAuth } from '@/state/auth';
 import { Icon } from '@/ui/Bits';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
-import { radius, shelf, type as type_, useTheme } from '@/ui/theme';
+import { radius, readingColumn, shelf, type as type_, useTheme } from '@/ui/theme';
 
 type Step = 'server' | 'credentials';
 
@@ -137,13 +137,16 @@ export default function SignIn() {
         style={{ flex: 1 }}
       >
         <ScrollView
-          contentContainerStyle={{
-            flexGrow: 1,
-            justifyContent: 'center',
-            paddingHorizontal: 28,
-            paddingTop: insets.top + 40,
-            paddingBottom: insets.bottom + 40,
-          }}
+          contentContainerStyle={[
+            readingColumn,
+            {
+              flexGrow: 1,
+              justifyContent: 'center',
+              paddingHorizontal: 28,
+              paddingTop: insets.top + 40,
+              paddingBottom: insets.bottom + 40,
+            },
+          ]}
           keyboardShouldPersistTaps="handled"
         >
           <Animated.View entering={FadeInDown.duration(600).springify()} style={{ marginBottom: 36 }}>

@@ -15,7 +15,7 @@ import { BookCover } from '@/ui/BookCover';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
 import { Shelf, ShelfSkeleton } from '@/ui/Shelf';
-import { radius, type as type_, useTheme } from '@/ui/theme';
+import { contentColumn, radius, tabBarInset, type as type_, useTheme } from '@/ui/theme';
 
 export default function ReadingNow() {
   const theme = useTheme();
@@ -61,7 +61,10 @@ export default function ReadingNow() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.bg }}
-      contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 120 }}
+      contentContainerStyle={[
+        contentColumn,
+        { paddingTop: insets.top + 8 + tabBarInset, paddingBottom: insets.bottom + 120 },
+      ]}
       contentInsetAdjustmentBehavior="never"
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.textTertiary} />
