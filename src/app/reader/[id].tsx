@@ -245,6 +245,12 @@ export default function Reader() {
           setError(event.message);
           break;
 
+        case 'log':
+          // The engine can't reach the Metro console on its own; this is the
+          // only window into what happens inside the WebView on a device.
+          if (__DEV__) console.log('[reader]', event.message);
+          break;
+
         default:
           break;
       }

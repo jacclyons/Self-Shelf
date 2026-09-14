@@ -163,20 +163,26 @@
   };
 
   /* ------------------------------------------------------------------ */
-  /* Shared gestures: tap zones + swipe                                  */
+  /* Shared gestures: tap zones                                          */
   /* ------------------------------------------------------------------ */
 
-  var TAP_SLOP = 12;
-  var TAP_MS = 400;
+  var TAP_SLOP = 14;
+  var TAP_MS = 500;
 
-  /* Taps arrive from three places: the chapter iframe, the padded container
-     around it (safe-area insets leave a lot of that), and WebKit's synthetic
-     click. Route them all through one handler and de-duplicate by time. */
-  var lastTouchTapAt = 0;
+  /* Thirds, the full height of the screen: the left third turns back, the
+     right third turns forward and the middle third toggles the controls.
+     Swipes are handled elsewhere: epub.js's snap scroller for books, and CSS
+     scroll-snap on #pages for PDFs and comics. */
+  function zoneFor(x) {
+    var w = window.innerWidth;
+    if (x < w / 3) return 'left';
+    if (x > w * 2 / 3) return 'right';
+    return 'center';
+  }
 
   /** Absolute viewport X, translating out of an iframe's own coordinate space. */
-  function viewportX(event, doc) {
-    var x = event.clientX;
+  function viewportX(point, doc) {
+    var x = point.clientX;
     try {
       var frame = doc.defaultView.frameElement;
       if (frame) x += frame.getBoundingClientRect().left;
@@ -184,14 +190,12 @@
     return x;
   }
 
-  function zoneFor(x) {
-    var w = window.innerWidth;
-    if (x < w * 0.28) return 'left';
-    if (x > w * 0.72) return 'right';
-    return 'center';
-  }
-
+  /* Taps arrive from several places: each chapter iframe, the padded container
+     around them (the safe-area insets leave a lot of that), and WebKit's
+     synthetic mouse events and click after a touch. They all funnel through
+     here and are de-duplicated by time. */
   var lastTapAt = 0;
+  var lastTouchTapAt = 0;
 
   function handleTap(x, opts, fromTouch) {
     // Only suppress the synthetic click WebKit fires after a touch — tapping
@@ -211,36 +215,98 @@
     post({ type: 'tap', zone: zone });
   }
 
-  function attachTaps(target, opts) {
-    var doc = target.ownerDocument || target;
-    var startX = 0, startY = 0, startT = 0, moved = false;
+  /* A tap while text is selected never turns the page or toggles the controls.
+     Tapping the selection itself is left to WebKit, which re-opens its menu;
+     anywhere else clears it, so a selection can't get stuck and swallow every
+     tap after it. */
+  function dismissSelection(doc, point) {
+    try {
+      var sel = doc.getSelection();
+      if (!sel || sel.isCollapsed || !String(sel)) return false;
+      var box = sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null;
+      var pad = 24;
+      if (box && point.clientX >= box.left - pad && point.clientX <= box.right + pad &&
+          point.clientY >= box.top - pad && point.clientY <= box.bottom + pad) return true;
+      sel.removeAllRanges();
+      return true;
+    } catch (e) { return false; }
+  }
 
-    target.addEventListener('touchstart', function (e) {
-      if (e.touches.length !== 1) { moved = true; return; }
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      startT = Date.now();
-      moved = false;
-    }, { passive: true });
+  /**
+   * Recognise taps anywhere in one document. Listeners sit on the document in
+   * the capture phase so nothing inside can keep a tap from us, and every
+   * input path WebKit might take is covered (touch, the mouse events it
+   * synthesises after a touch, and click), because iOS is not consistent
+   * about which of them reach a sandboxed chapter frame. A tap needs no
+   * matching start event: an end that arrives on its own still counts unless
+   * a drag, pinch or cancelled touch has only just finished.
+   */
+  function attachTaps(doc, opts) {
+    var press = null;   // the single-finger touch or mouse press in flight
+    var fingers = 0;    // touches currently down; more than one is never a tap
+    var movedAt = 0;    // when a press last ended as a drag, pinch or cancel
 
-    target.addEventListener('touchmove', function (e) {
-      if (!e.touches.length) return;
-      if (Math.abs(e.touches[0].clientX - startX) > TAP_SLOP ||
-          Math.abs(e.touches[0].clientY - startY) > TAP_SLOP) moved = true;
-    }, { passive: true });
+    function begin(point, touch) {
+      press = { x: point.clientX, y: point.clientY, t: Date.now(), moved: false, touch: touch };
+    }
+    function move(point) {
+      if (!press || press.moved) return;
+      if (Math.abs(point.clientX - press.x) > TAP_SLOP ||
+          Math.abs(point.clientY - press.y) > TAP_SLOP) {
+        press.moved = true;
+        movedAt = Date.now();
+      }
+    }
+    function drop() {
+      press = null;
+      movedAt = Date.now();
+    }
+    function end(point, touch) {
+      var was = press;
+      press = null;
+      if (was && (was.moved || Date.now() - was.t > TAP_MS)) return;
+      if (!was && Date.now() - movedAt < 500) return;
+      if (dismissSelection(doc, point)) return;
+      handleTap(viewportX(point, doc), opts, touch);
+    }
+    // A tap on a footnote or chapter link follows the link; it isn't a page turn.
+    function onLink(e) {
+      var el = e.target;
+      return !!(el && el.closest && el.closest('a[href]'));
+    }
 
-    target.addEventListener('touchend', function (e) {
-      if (moved || !startT || Date.now() - startT > TAP_MS) return;
-      if (doc.getSelection && String(doc.getSelection())) return;
-      handleTap(viewportX(e.changedTouches[0], doc), opts, true);
-    }, { passive: true });
+    var passive = { capture: true, passive: true };
+    doc.addEventListener('touchstart', function (e) {
+      fingers = e.touches.length;
+      if (fingers === 1) begin(e.touches[0], true); else drop();
+    }, passive);
+    doc.addEventListener('touchmove', function (e) {
+      if (e.touches.length === 1) move(e.touches[0]);
+    }, passive);
+    doc.addEventListener('touchend', function (e) {
+      if (e.touches.length) return;
+      var multi = fingers > 1;
+      fingers = 0;
+      if (multi) drop();
+      else if (onLink(e)) press = null;
+      else end(e.changedTouches[0], true);
+    }, passive);
+    doc.addEventListener('touchcancel', function () {
+      fingers = 0;
+      drop();
+    }, passive);
 
-    // WebKit inside a sandboxed srcdoc frame doesn't always deliver touchend;
-    // click is the dependable path, and the time guard stops double-handling.
-    target.addEventListener('click', function (e) {
-      if (doc.getSelection && String(doc.getSelection())) return;
-      handleTap(viewportX(e, doc), opts, false);
-    }, false);
+    doc.addEventListener('mousedown', function (e) {
+      if (e.button === 0) begin(e, false);
+    }, true);
+    doc.addEventListener('mousemove', function (e) {
+      if (e.buttons) move(e);
+    }, true);
+    doc.addEventListener('click', function (e) {
+      if (e.button !== 0) return;
+      if (onLink(e)) press = null;
+      else end(e, false);
+    }, true);
   }
 
   /* ------------------------------------------------------------------ */
@@ -305,10 +371,18 @@
 
   function bindContents(contents) {
     var doc = contents.document;
-    attachTaps(doc.documentElement, { onTurn: turn });
+    attachTaps(doc, { onTurn: turn });
     bindKeys(doc);
     // Long-press selection needs text selection enabled inside the frame.
     contents.addStylesheetRules({ 'body': { '-webkit-user-select': 'text', 'user-select': 'text' } });
+    // iOS only delivers click to content it considers clickable, and a pointer
+    // cursor is the documented way to opt a whole page in. Scoped to touch
+    // screens, which never draw the cursor, so the web build keeps its I-beam.
+    try {
+      var style = doc.createElement('style');
+      style.textContent = '@media (pointer: coarse) { html, body { cursor: pointer; } }';
+      doc.head.appendChild(style);
+    } catch (e) {}
   }
 
   function reportEpubLocation() {
@@ -1003,7 +1077,7 @@
   });
 
   // The container carries the safe-area padding, so taps there must count too.
-  attachTaps(document.documentElement, { onTurn: turn });
+  attachTaps(document, { onTurn: turn });
   attachZoom(document.getElementById('pages'));
 
   bindKeys(document);
