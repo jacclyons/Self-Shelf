@@ -5,7 +5,7 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { SHELF_ROOT } from '@/lib/storage';
 import type { ReaderFont, ReaderSettings, ReaderTheme } from '@/state/reader';
 
-import type { ReaderEvent } from './protocol';
+import type { ReaderEvent, SelectionAction } from './protocol';
 
 export interface ReaderHandle {
   next(): void;
@@ -29,7 +29,7 @@ interface ReaderViewProps {
   theme: ReaderTheme;
   insets: { top: number; bottom: number };
   onEvent(event: ReaderEvent): void;
-  onSelectionAction(action: 'highlight' | 'note', text: string): void;
+  onSelectionAction(action: SelectionAction, text: string, location: string): void;
 }
 
 const SELECTION_MENU = [
@@ -66,6 +66,7 @@ function engineSettings(
     justify: settings.justify,
     flow: settings.flow,
     rtl: settings.rtl,
+    leftHanded: settings.leftHanded,
     insetTop: insets.top,
     insetBottom: insets.bottom,
   };
@@ -157,12 +158,18 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
         call(`window.JS.load(${JSON.stringify(payload)})`);
       }
 
+      if (parsed.type === 'selectionAction') {
+        onSelectionAction(parsed.action, parsed.text, parsed.location);
+        return;
+      }
+
       onEvent(parsed);
     },
     [
       bookUri,
       cachedLocations,
       call,
+      onSelectionAction,
       engineUri,
       initialLocation,
       initialPercent,
@@ -209,12 +216,14 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
         menuItems={SELECTION_MENU}
-        onCustomMenuSelection={(event) =>
-          onSelectionAction(
-            event.nativeEvent.key as 'highlight' | 'note',
-            event.nativeEvent.selectedText,
-          )
-        }
+        // The selection lives inside a chapter iframe, where the native menu
+        // can't read it (selectedText comes back empty), so the engine is asked
+        // for the text and CFI and answers with a `selectionAction` message.
+        onCustomMenuSelection={(event) => {
+          const action = event.nativeEvent.key as SelectionAction;
+          if (__DEV__) console.log('[reader] menu', action);
+          call(`window.JS.selectionAction(${JSON.stringify(action)})`);
+        }}
         setSupportMultipleWindows={false}
         style={{ flex: 1, backgroundColor: theme.bg }}
         onRenderProcessGone={() => onEvent({ type: 'error', message: 'The reader ran out of memory.' })}

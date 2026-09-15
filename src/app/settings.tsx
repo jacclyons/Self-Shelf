@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CLIENT_VERSION } from '@/api/client';
 import { showAlert } from '@/lib/alert';
 import { useDismissTo } from '@/lib/navigation';
-import { clearAllDownloads, downloadsSize, formatBytes } from '@/lib/storage';
+import { cacheSize, canDownload, clearAllDownloads, clearCache, downloadsSize, formatBytes } from '@/lib/storage';
 import { useAppearance, type AppearanceChoice } from '@/state/appearance';
 import { useAuth } from '@/state/auth';
 import { listDownloads, wipeLocalData } from '@/state/db';
@@ -28,10 +28,12 @@ export default function Settings() {
 
   const [downloads, setDownloads] = useState(() => listDownloads().length);
   const [bytes, setBytes] = useState(() => downloadsSize());
+  const [cached, setCached] = useState(() => cacheSize());
 
   const refresh = useCallback(() => {
     setDownloads(listDownloads().length);
     setBytes(downloadsSize());
+    setCached(cacheSize());
   }, []);
 
   if (!session) return null;
@@ -110,6 +112,33 @@ export default function Settings() {
             )
           }
         />
+        {canDownload ? (
+          <>
+            <Row icon="clock.arrow.circlepath" label="Recently read" value={formatBytes(cached)} />
+            <Row
+              icon="xmark.bin"
+              label="Clear recently read"
+              destructive
+              onPress={() =>
+                showAlert(
+                  'Clear recently read?',
+                  'Books you open are kept for a while so they reopen instantly. Downloads and reading positions are kept.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Clear',
+                      style: 'destructive',
+                      onPress: () => {
+                        clearCache();
+                        refresh();
+                      },
+                    },
+                  ],
+                )
+              }
+            />
+          </>
+        ) : null}
       </Section>
 
       <Section title="Server">
@@ -146,6 +175,7 @@ export default function Settings() {
               style: 'destructive',
               onPress: async () => {
                 clearAllDownloads();
+                clearCache();
                 wipeLocalData();
                 await signOut();
                 router.replace('/sign-in');

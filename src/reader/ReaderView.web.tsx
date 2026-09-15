@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ReaderFont, ReaderSettings, ReaderTheme } from '@/state/reader';
 import { maxReaderWidth } from '@/ui/theme';
 
-import type { ReaderEvent } from './protocol';
+import type { ReaderEvent, SelectionAction } from './protocol';
 
 export interface ReaderHandle {
   next(): void;
@@ -28,7 +28,7 @@ interface ReaderViewProps {
   theme: ReaderTheme;
   insets: { top: number; bottom: number };
   onEvent(event: ReaderEvent): void;
-  onSelectionAction(action: 'highlight' | 'note', text: string): void;
+  onSelectionAction(action: SelectionAction, text: string, location: string): void;
 }
 
 /** The engine's own API, exposed on the iframe's window once it is ready. */
@@ -42,6 +42,7 @@ interface EngineApi {
   goToPercent(percent: number): void;
   highlight(id: string, location: string, color: string): void;
   unhighlight(location: string): void;
+  selectionAction(action: SelectionAction): void;
   clearSelection(): void;
 }
 
@@ -58,6 +59,7 @@ function engineSettings(
     justify: settings.justify,
     flow: settings.flow,
     rtl: settings.rtl,
+    leftHanded: settings.leftHanded,
     insetTop: insets.top,
     insetBottom: insets.bottom,
   };
@@ -171,6 +173,12 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
       // The floating bar stands in for the native selection menu.
       if (parsed.type === 'selection') setSelection(parsed.text);
       if (parsed.type === 'tap' || parsed.type === 'location') setSelection(null);
+      if (parsed.type === 'selectionAction') {
+        setSelection(null);
+        engine()?.clearSelection();
+        onSelectionAction(parsed.action, parsed.text, parsed.location);
+        return;
+      }
 
       onEvent(parsed);
     }
@@ -185,18 +193,15 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
     initialPercent,
     kind,
     onEvent,
+    onSelectionAction,
     settingsPayload,
     themePayload,
   ]);
 
+  // The engine resolves the selection and answers with `selectionAction`.
   const act = useCallback(
-    (action: 'highlight' | 'note') => {
-      const text = selection ?? '';
-      setSelection(null);
-      engine()?.clearSelection();
-      onSelectionAction(action, text);
-    },
-    [selection, engine, onSelectionAction],
+    (action: SelectionAction) => engine()?.selectionAction(action),
+    [engine],
   );
 
   // Prose gets a column: a 2000px line length is unreadable, and the engine

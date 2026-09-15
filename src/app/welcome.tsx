@@ -50,7 +50,7 @@ const PAGES: Page[] = [
   {
     icon: 'server.rack',
     title: 'Bring your own server',
-    body: 'Sign into Jellyfin (equipped with the Bookshelf plugin). You can also drop your own EPUBs straight into the app from Files.',
+    body: 'Sign into Jellyfin 12 or newer, or an older server with the Bookshelf plugin. You can also drop your own EPUBs straight into the app from Files.',
   },
 ];
 

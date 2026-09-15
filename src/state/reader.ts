@@ -75,6 +75,11 @@ export interface ReaderSettings {
   flow: 'paged' | 'scrolled';
   /** Manga reads right-to-left; comics only. */
   rtl: boolean;
+  /**
+   * Left-hand mode swaps the tap zones so the side under a left thumb turns
+   * the page forward. Swipes keep their natural direction.
+   */
+  leftHanded: boolean;
 }
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -86,6 +91,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   justify: false,
   flow: 'paged',
   rtl: false,
+  leftHanded: false,
 };
 
 const KEY = 'reader.settings.v1';

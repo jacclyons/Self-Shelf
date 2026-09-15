@@ -14,6 +14,8 @@ export type ReaderEvent =
       atEnd?: boolean;
     }
   | { type: 'selection'; text: string; location: string }
+  /** The engine's answer to `selectionAction`: what to act on, resolved at the moment of the tap. */
+  | { type: 'selectionAction'; action: SelectionAction; text: string; location: string }
   | { type: 'tap'; zone: 'left' | 'right' | 'center' }
   | { type: 'locations'; data: string }
   | { type: 'totalLocations'; total: number }
@@ -21,6 +23,9 @@ export type ReaderEvent =
   | { type: 'dismiss' }
   | { type: 'error'; message: string }
   | { type: 'log'; message: string };
+
+/** The two things the selection menu can do with a passage. */
+export type SelectionAction = 'highlight' | 'note';
 
 export interface Chapter {
   label: string;

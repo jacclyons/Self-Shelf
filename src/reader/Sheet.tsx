@@ -4,6 +4,7 @@ import Animated, {
   Easing,
   FadeIn,
   FadeOut,
+  LinearTransition,
   SlideInDown,
   SlideOutDown,
 } from 'react-native-reanimated';
@@ -28,6 +29,8 @@ interface SheetProps {
   scroll?: boolean;
   /** Reader sheets follow the page theme, not the system appearance. */
   dark?: boolean;
+  /** Title colour; reader sheets pass the page theme's own text colour. */
+  fg?: string;
 }
 
 /** A glass bottom sheet that floats above the page, Apple Books style. */
@@ -39,10 +42,16 @@ export function Sheet({
   maxHeight = '76%',
   scroll = true,
   dark,
+  fg,
 }: SheetProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const isDark = dark ?? theme.scheme === 'dark';
+  // Every colour follows `isDark`, never the app palette: a reader sheet over
+  // a light page while the app is in dark mode used to get near-white text.
+  const titleColor = fg ?? (isDark ? '#F2EFEA' : '#181513');
+  const closeBg = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,22,16,0.07)';
+  const closeFg = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(24,21,19,0.55)';
 
   const Body = scroll ? ScrollView : View;
 
@@ -57,6 +66,9 @@ export function Sheet({
         // its own sheets, so the panel just rises and settles.
         entering={SlideInDown.duration(340).easing(SHEET_IN)}
         exiting={SlideOutDown.duration(240).easing(SHEET_OUT)}
+        // Content that grows or shrinks (a tab switch, Customize opening)
+        // pushes the top edge up or down; this eases it instead of snapping.
+        layout={LinearTransition.duration(260).easing(SHEET_IN)}
         style={{
           position: 'absolute',
           left: 10,
@@ -84,24 +96,19 @@ export function Sheet({
               paddingBottom: 12,
             }}
           >
-            <Text style={[type_.title3, { color: isDark ? '#F2EFEA' : theme.text }]}>{title}</Text>
+            <Text style={[type_.title3, { color: titleColor }]}>{title}</Text>
             <Press onPress={onClose} haptic="selection" scaleTo={0.9} hitSlop={10}>
               <View
                 style={{
                   width: 30,
                   height: 30,
                   borderRadius: 15,
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : theme.surfaceAlt,
+                  backgroundColor: closeBg,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <Icon
-                  name="xmark"
-                  size={12}
-                  color={isDark ? 'rgba(255,255,255,0.6)' : theme.textSecondary}
-                  weight="bold"
-                />
+                <Icon name="xmark" size={12} color={closeFg} weight="bold" />
               </View>
             </Press>
           </View>

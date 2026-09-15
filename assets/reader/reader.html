@@ -160,6 +160,8 @@
     lastPercent: 0,
     lastLocation: null,
     chapters: [],
+    highlights: {},     // cfi → { id, color }, so marks can be redrawn for a new theme
+    lastSelection: null, // the selection epub.js last reported, as { text, location }
   };
 
   /* ------------------------------------------------------------------ */
@@ -211,7 +213,9 @@
 
     var zone = zoneFor(x);
     if (zone === 'center') { post({ type: 'tap', zone: 'center' }); return; }
-    if (opts && opts.onTurn) opts.onTurn(zone === 'right' ? 1 : -1);
+    // Left-hand mode mirrors the zones so the thumb's side turns forward.
+    var forward = zone === (state.settings.leftHanded ? 'left' : 'right');
+    if (opts && opts.onTurn) opts.onTurn(forward ? 1 : -1);
     post({ type: 'tap', zone: zone });
   }
 
@@ -349,6 +353,54 @@
     }
   }
 
+  /* Marks are SVG rects laid over the chapter. `multiply` tints the paper
+     under the text on a light theme, but multiplying anything into a near-
+     black page gives near-black, so on dark themes the same mark is invisible
+     and the text is left barely tinted. `screen` is the mirror image: it
+     lifts the dark page to the highlight colour and leaves light text alone. */
+  function drawHighlight(id, cfi, color) {
+    try {
+      state.rendition.annotations.highlight(cfi, { id: id }, null, 'jf-hl', {
+        fill: color,
+        'fill-opacity': state.theme.dark ? '0.45' : '0.32',
+        'mix-blend-mode': state.theme.dark ? 'screen' : 'multiply',
+      });
+    } catch (e) {}
+  }
+
+  /* The live selection in whichever chapter frame has one, as text plus a
+     CFI. epub.js reports selections through a debounced selectionchange
+     listener, which is fine for showing a menu but a poor thing to act on
+     later: the menu tap can land before the debounce fires, and a frame
+     can be torn down in between. Reading the frames at the moment of the
+     tap is what the highlight actually wants. */
+  function currentSelection() {
+    if (!state.rendition) return null;
+    var found = null;
+    try {
+      state.rendition.getContents().forEach(function (c) {
+        if (found) return;
+        var sel = c.window.getSelection();
+        if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+        var text = String(sel).trim();
+        if (!text) return;
+        found = { text: text, location: c.cfiFromRange(sel.getRangeAt(0)) };
+      });
+    } catch (e) {
+      post({ type: 'log', message: 'selection failed: ' + (e && e.message ? e.message : e) });
+    }
+    return found;
+  }
+
+  function redrawHighlights() {
+    if (!state.rendition) return;
+    Object.keys(state.highlights).forEach(function (cfi) {
+      var mark = state.highlights[cfi];
+      try { state.rendition.annotations.remove(cfi, 'highlight'); } catch (e) {}
+      drawHighlight(mark.id, cfi, mark.color);
+    });
+  }
+
   /* Keyboard paging. A browser reader is expected to answer the arrow keys,
      and epub.js paints each chapter into its own iframe, so the listener has
      to be attached per-document rather than once on the window. Harmless on
@@ -404,6 +456,14 @@
       var nav = state.book.navigation && state.book.navigation.get(loc.start.href);
       chapter = nav ? nav.label.trim() : null;
     } catch (e) {}
+    if (!chapter) {
+      // navigation.get() is keyed by the raw TOC hrefs; the resolved list is
+      // keyed the way the spine is, which is what the location reports.
+      for (var i = 0; i < state.chapters.length; i++) {
+        var href = state.chapters[i].href;
+        if (href && href.split('#')[0] === loc.start.href) { chapter = state.chapters[i].label; break; }
+      }
+    }
 
     state.lastPercent = percent;
     state.lastLocation = cfi;
@@ -420,10 +480,44 @@
     });
   }
 
-  function flattenToc(items, depth, out) {
+  /* epub.js keeps TOC hrefs exactly as the nav document wrote them, but
+     rendition.display() only understands hrefs relative to the OPF, so a book
+     whose nav.xhtml sits in a subfolder (Sigil puts it in Text/) or that writes
+     "../Text/ch1.xhtml" gets a silent "No Section Found" for every entry. This
+     resolves each entry against the nav document's own location and hands
+     back the spine item's href, which display() does understand. */
+  function tocResolver(book) {
+    var pkg = book.packaging || {};
+    var byPath = {};
+    function normalise(path, base) {
+      try {
+        var out = new URL(path, 'http://x' + (base || '/')).pathname;
+        try { out = decodeURIComponent(out); } catch (e) {}
+        return out;
+      } catch (e) { return path; }
+    }
+    (book.spine && book.spine.spineItems || []).forEach(function (item) {
+      byPath[normalise(book.resolve(item.href))] = item.href;
+    });
+    var navBase = normalise(book.resolve(pkg.navPath || pkg.ncxPath || '') || '/');
+    return function (href) {
+      if (!href) return null;
+      var hash = href.indexOf('#');
+      var path = hash < 0 ? href : href.slice(0, hash);
+      var fragment = hash < 0 ? '' : href.slice(hash);
+      if (!path) return null;
+      var spineHref = byPath[normalise(path, navBase)];
+      if (spineHref) return spineHref + fragment;
+      // Already an OPF-relative href: leave it alone rather than lose the entry.
+      return book.spine && book.spine.get(path) ? href : null;
+    };
+  }
+
+  function flattenToc(items, depth, out, resolve) {
     (items || []).forEach(function (item) {
-      out.push({ label: (item.label || '').trim(), href: item.href, depth: depth });
-      if (item.subitems && item.subitems.length) flattenToc(item.subitems, depth + 1, out);
+      var href = resolve ? resolve(item.href) : item.href;
+      out.push({ label: (item.label || '').trim(), href: href, depth: depth });
+      if (item.subitems && item.subitems.length) flattenToc(item.subitems, depth + 1, out, resolve);
     });
     return out;
   }
@@ -452,6 +546,7 @@
       var sel = contents.window.getSelection();
       var text = sel ? String(sel).trim() : '';
       if (!text) return;
+      state.lastSelection = { text: text, location: cfiRange };
       post({ type: 'selection', text: text, location: cfiRange });
     });
 
@@ -462,7 +557,7 @@
     // The container was padded before the manager existed, so take the size again.
     setMargins();
 
-    state.chapters = flattenToc(book.navigation && book.navigation.toc, 0, []);
+    state.chapters = flattenToc(book.navigation && book.navigation.toc, 0, [], tocResolver(book));
     post({
       type: 'loaded',
       kind: 'epub',
@@ -978,7 +1073,11 @@
     prev: function () { turn(-1); },
 
     goTo: function (location) {
-      if (state.kind === 'epub' && state.rendition) state.rendition.display(location);
+      if (state.kind === 'epub' && state.rendition) {
+        state.rendition.display(location).catch(function (e) {
+          post({ type: 'log', message: 'goTo ' + location + ' failed: ' + (e && e.message ? e.message : e) });
+        });
+      }
       else if (state.kind === 'pdf' || state.kind === 'comic') {
         goToPdfPage(parseInt(location, 10) || 1, false);
       }
@@ -1013,27 +1112,42 @@
     },
 
     setTheme: function (theme) {
+      var wasDark = !!state.theme.dark;
       state.theme = Object.assign({}, state.theme, theme);
       applyRootTheme();
-      if (state.kind === 'epub') applyEpubStyle();
-      else applyPdfTheme();
+      if (state.kind === 'epub') {
+        applyEpubStyle();
+        // The blend mode is baked into each mark, so a light/dark switch redraws them.
+        if (wasDark !== !!state.theme.dark) redrawHighlights();
+      } else applyPdfTheme();
     },
 
     highlight: function (id, cfi, color) {
       if (state.kind !== 'epub' || !state.rendition) return;
-      try {
-        state.rendition.annotations.highlight(cfi, { id: id }, null, 'jf-hl', {
-          fill: color, 'fill-opacity': '0.32', 'mix-blend-mode': 'multiply',
-        });
-      } catch (e) {}
+      state.highlights[cfi] = { id: id, color: color };
+      drawHighlight(id, cfi, color);
     },
 
     unhighlight: function (cfi) {
       if (state.kind !== 'epub' || !state.rendition) return;
+      delete state.highlights[cfi];
       try { state.rendition.annotations.remove(cfi, 'highlight'); } catch (e) {}
     },
 
+    /* A menu item was chosen for the selection. The host can't read the
+       selection itself (the native menu's selectedText is empty for text
+       inside an iframe), so this answers with the text and CFI to act on. */
+    selectionAction: function (action) {
+      var selection = currentSelection() || state.lastSelection;
+      if (!selection) {
+        post({ type: 'log', message: 'selectionAction ' + action + ': nothing is selected' });
+        return;
+      }
+      post({ type: 'selectionAction', action: action, text: selection.text, location: selection.location });
+    },
+
     clearSelection: function () {
+      state.lastSelection = null;
       try {
         if (state.rendition) {
           state.rendition.getContents().forEach(function (c) {

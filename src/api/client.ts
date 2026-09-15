@@ -212,6 +212,8 @@ const ITEM_FIELDS = [
   'Studios',
   'MediaSources',
   'PrimaryImageAspectRatio',
+  'ProviderIds',
+  'ExternalUrls',
 ];
 
 export interface ItemQuery {

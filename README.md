@@ -30,7 +30,7 @@ is pushed back up to Jellyfin when the server is reachable.
 
 - **Web:** [self-shelf-web.vercel.app](https://self-shelf-web.vercel.app) is open to everyone. Sign in with
   your own Jellyfin server and start reading in the browser.
-- **iOS:** The native app is being tested through TestFlight.
+- **iOS:** Join the beta through [TestFlight](https://testflight.apple.com/join/ASUrxDuq).
 
 ## What it does
 
@@ -64,7 +64,12 @@ is pushed back up to Jellyfin when the server is reachable.
 
 ## Requirements
 
-- A Jellyfin server with the [Bookshelf plugin](https://github.com/jellyfin/jellyfin-plugin-bookshelf) installed
+- A Jellyfin server with a Books library. Jellyfin 12 reads books natively; older servers need the
+  [Bookshelf plugin](https://github.com/jellyfin-archive/jellyfin-plugin-bookshelf). For covers and
+  descriptions, install the metadata plugins that replaced Bookshelf on Jellyfin 12:
+  [Google Books](https://github.com/jellyfin/jellyfin-plugin-googlebooks),
+  [Open Library](https://github.com/jellyfin/jellyfin-plugin-openlibrary) and, for comics,
+  [Comic Vine](https://github.com/jellyfin/jellyfin-plugin-comicvine)
 - Xcode 26 and an iOS 26 device or simulator
 - Node 20 or newer
 

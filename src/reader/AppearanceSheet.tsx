@@ -1,5 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Text, useWindowDimensions, View } from 'react-native';
+import Animated, {
+  FadeInDown,
+  FadeOutUp,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 import { textOn } from '@/ui/accents';
 import { Icon } from '@/ui/Bits';
@@ -13,6 +21,7 @@ import {
   type ReaderTheme,
 } from '@/state/reader';
 
+import { Segmented } from './Segmented';
 import { Sheet } from './Sheet';
 
 interface AppearanceSheetProps {
@@ -55,6 +64,7 @@ export function AppearanceSheet({
       title="Themes & Settings"
       maxHeight="86%"
       dark={theme.dark}
+      fg={theme.fg}
     >
       <View style={{ paddingHorizontal: sheetPadding, gap: 18 }}>
         {kind === 'epub' ? (
@@ -93,19 +103,19 @@ export function AppearanceSheet({
         ) : null}
 
         {kind === 'comic' ? (
-          <Segmented
-            label="Reading Direction"
-            muted={muted}
-            background={chipBg}
-            accent={theme.accent}
-            fg={theme.fg}
-            value={settings.rtl ? 'rtl' : 'ltr'}
-            options={[
-              { label: 'Left to Right', value: 'ltr' as const },
-              { label: 'Right to Left', value: 'rtl' as const },
-            ]}
-            onChange={(value) => onChange({ rtl: value === 'rtl' })}
-          />
+          <Labelled label="Reading Direction" muted={muted}>
+            <Segmented
+              background={chipBg}
+              accent={theme.accent}
+              fg={theme.fg}
+              value={settings.rtl ? 'rtl' : 'ltr'}
+              options={[
+                { label: 'Left to Right', value: 'ltr' as const },
+                { label: 'Right to Left', value: 'rtl' as const },
+              ]}
+              onChange={(value) => onChange({ rtl: value === 'rtl' })}
+            />
+          </Labelled>
         ) : null}
 
         {/* --------------------------- theme grid --------------------------- */}
@@ -151,6 +161,24 @@ export function AppearanceSheet({
           })}
         </View>
 
+        {/* --------------------------- left-hand mode ------------------------ */}
+        <View
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}
+        >
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text style={[type_.subhead, { color: theme.fg, fontWeight: '500' }]}>Left-Hand Mode</Text>
+            <Text style={[type_.caption, { color: muted }]}>
+              Tap the left side of the page to turn forward.
+            </Text>
+          </View>
+          <Toggle
+            value={settings.leftHanded}
+            accent={theme.accent}
+            background={chipBg}
+            onChange={(leftHanded) => onChange({ leftHanded })}
+          />
+        </View>
+
         {/* ---------------------------- customize --------------------------- */}
         {kind === 'epub' ? (
           <Press haptic="light" scaleTo={0.98} onPress={() => setCustomizing((v) => !v)}>
@@ -169,17 +197,20 @@ export function AppearanceSheet({
               <Text style={[type_.subhead, { color: theme.fg, fontWeight: '500' }]}>
                 Customize
               </Text>
-              <Icon
-                name={customizing ? 'chevron.up' : 'chevron.down'}
-                size={11}
-                color={muted}
-              />
+              <Chevron open={customizing} color={muted} />
             </View>
           </Press>
         ) : null}
 
         {customizing && kind === 'epub' ? (
-          <View style={{ gap: 22, paddingBottom: 6 }}>
+          <Animated.View
+            // Unfolds from under the Customize button and folds back into it,
+            // while the sheet's layout transition grows to make room.
+            entering={FadeInDown.duration(220)}
+            exiting={FadeOutUp.duration(160)}
+            layout={LinearTransition.duration(220)}
+            style={{ gap: 22, paddingBottom: 6 }}
+          >
             <View style={{ gap: 10 }}>
               <Label text="Font" muted={muted} />
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -219,35 +250,35 @@ export function AppearanceSheet({
               </View>
             </View>
 
-            <Segmented
-              label="Line Spacing"
-              muted={muted}
-              background={chipBg}
-              accent={theme.accent}
-              fg={theme.fg}
-              value={settings.lineHeight}
-              options={[
-                { label: 'Tight', value: 1.35 },
-                { label: 'Normal', value: 1.6 },
-                { label: 'Loose', value: 1.95 },
-              ]}
-              onChange={(lineHeight) => onChange({ lineHeight })}
-            />
+            <Labelled label="Line Spacing" muted={muted}>
+              <Segmented
+                background={chipBg}
+                accent={theme.accent}
+                fg={theme.fg}
+                value={settings.lineHeight}
+                options={[
+                  { label: 'Tight', value: 1.35 },
+                  { label: 'Normal', value: 1.6 },
+                  { label: 'Loose', value: 1.95 },
+                ]}
+                onChange={(lineHeight) => onChange({ lineHeight })}
+              />
+            </Labelled>
 
-            <Segmented
-              label="Margins"
-              muted={muted}
-              background={chipBg}
-              accent={theme.accent}
-              fg={theme.fg}
-              value={settings.margin}
-              options={[
-                { label: 'Narrow', value: 14 },
-                { label: 'Normal', value: 26 },
-                { label: 'Wide', value: 44 },
-              ]}
-              onChange={(margin) => onChange({ margin })}
-            />
+            <Labelled label="Margins" muted={muted}>
+              <Segmented
+                background={chipBg}
+                accent={theme.accent}
+                fg={theme.fg}
+                value={settings.margin}
+                options={[
+                  { label: 'Narrow', value: 14 },
+                  { label: 'Normal', value: 26 },
+                  { label: 'Wide', value: 44 },
+                ]}
+                onChange={(margin) => onChange({ margin })}
+              />
+            </Labelled>
 
             <View
               style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
@@ -260,7 +291,7 @@ export function AppearanceSheet({
                 onChange={(justify) => onChange({ justify })}
               />
             </View>
-          </View>
+          </Animated.View>
         ) : null}
       </View>
     </Sheet>
@@ -308,68 +339,36 @@ function SizeStep({
   );
 }
 
-function Segmented<T extends string | number>({
+function Labelled({
   label,
-  value,
-  options,
-  onChange,
   muted,
-  background,
-  accent,
-  fg,
+  children,
 }: {
   label: string;
-  value: T;
-  options: { label: string; value: T }[];
-  onChange(value: T): void;
   muted: string;
-  background: string;
-  accent: string;
-  fg: string;
+  children: ReactNode;
 }) {
   return (
     <View style={{ gap: 10 }}>
       <Label text={label} muted={muted} />
-      <View
-        style={{
-          flexDirection: 'row',
-          backgroundColor: background,
-          borderRadius: radius.md,
-          padding: 3,
-        }}
-      >
-        {options.map((option) => {
-          const selected = option.value === value;
-          return (
-            <Press
-              key={String(option.value)}
-              haptic="selection"
-              scaleTo={0.97}
-              style={{ flex: 1 }}
-              onPress={() => onChange(option.value)}
-            >
-              <View
-                style={{
-                  paddingVertical: 10,
-                  borderRadius: radius.md - 3,
-                  backgroundColor: selected ? accent : 'transparent',
-                  alignItems: 'center',
-                }}
-              >
-                <Text
-                  style={[
-                    type_.footnote,
-                    { color: selected ? textOn(accent) : fg, fontWeight: selected ? '600' : '400' },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </View>
-            </Press>
-          );
-        })}
-      </View>
+      {children}
     </View>
+  );
+}
+
+/** The disclosure chevron turns over rather than swapping glyphs. */
+function Chevron({ open, color }: { open: boolean; color: string }) {
+  const turn = useSharedValue(open ? 1 : 0);
+  useEffect(() => {
+    turn.value = withSpring(open ? 1 : 0, { damping: 20, stiffness: 260 });
+  }, [open, turn]);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${turn.value * 180}deg` }],
+  }));
+  return (
+    <Animated.View style={style}>
+      <Icon name="chevron.down" size={11} color={color} />
+    </Animated.View>
   );
 }
 
@@ -384,6 +383,13 @@ function Toggle({
   accent: string;
   background: string;
 }) {
+  const on = useSharedValue(value ? 1 : 0);
+  useEffect(() => {
+    on.value = withSpring(value ? 1 : 0, { damping: 22, stiffness: 300 });
+  }, [on, value]);
+  // The knob slides 20pt: 50 wide minus 24 knob minus 3pt padding each side.
+  const knob = useAnimatedStyle(() => ({ transform: [{ translateX: on.value * 20 }] }));
+
   return (
     <Press haptic="selection" scaleTo={0.94} onPress={() => onChange(!value)}>
       <View
@@ -393,20 +399,22 @@ function Toggle({
           borderRadius: 15,
           padding: 3,
           backgroundColor: value ? accent : background,
-          alignItems: value ? 'flex-end' : 'flex-start',
         }}
       >
-        <View
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: 12,
-            backgroundColor: '#fff',
-            shadowColor: '#000',
-            shadowOpacity: 0.18,
-            shadowRadius: 3,
-            shadowOffset: { width: 0, height: 1 },
-          }}
+        <Animated.View
+          style={[
+            {
+              width: 24,
+              height: 24,
+              borderRadius: 12,
+              backgroundColor: '#fff',
+              shadowColor: '#000',
+              shadowOpacity: 0.18,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 1 },
+            },
+            knob,
+          ]}
         />
       </View>
     </Press>

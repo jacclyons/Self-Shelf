@@ -114,7 +114,7 @@ export default function ReadingNow() {
         <EmptyState
           icon="books.vertical"
           title="Nothing on the shelf yet"
-          message="Add books to a Jellyfin library with the Bookshelf plugin, then pull down to refresh."
+          message="Add a Books library to Jellyfin (12 or newer, or older with the Bookshelf plugin), then pull down to refresh."
           action="Open Library"
           onAction={() => router.push('/library')}
         />

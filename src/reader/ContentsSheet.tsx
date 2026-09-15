@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
-import { textOn } from '@/ui/accents';
 import { Icon } from '@/ui/Bits';
 import { Press } from '@/ui/Press';
-import { radius, type as type_ } from '@/ui/theme';
+import { type as type_ } from '@/ui/theme';
 import type { BookmarkRow, HighlightRow } from '@/state/db';
 import type { ReaderTheme } from '@/state/reader';
 
 import type { Chapter } from './protocol';
+import { Segmented, type SegmentOption } from './Segmented';
 import { Sheet } from './Sheet';
 
 type Tab = 'contents' | 'bookmarks' | 'highlights';
@@ -48,50 +49,37 @@ export function ContentsSheet({
     onClose();
   };
 
-  const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: 'contents', label: 'Contents', count: chapters.length },
-    { key: 'bookmarks', label: 'Bookmarks', count: bookmarks.length },
-    { key: 'highlights', label: 'Highlights', count: highlights.length },
+  const count = (n: number) => (n ? ` ${n}` : '');
+  const tabs: SegmentOption<Tab>[] = [
+    { label: `Contents${count(chapters.length)}`, value: 'contents' },
+    { label: `Bookmarks${count(bookmarks.length)}`, value: 'bookmarks' },
+    { label: `Highlights${count(highlights.length)}`, value: 'highlights' },
   ];
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Contents" maxHeight="80%" dark={theme.dark}>
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      title="Contents"
+      maxHeight="80%"
+      dark={theme.dark}
+      fg={theme.fg}
+    >
       <View style={{ paddingHorizontal: 20, marginBottom: 14 }}>
-        <View style={{ flexDirection: 'row', backgroundColor: chipBg, borderRadius: radius.md, padding: 3 }}>
-          {tabs.map((entry) => {
-            const selected = tab === entry.key;
-            return (
-              <Press
-                key={entry.key}
-                haptic="selection"
-                scaleTo={0.97}
-                style={{ flex: 1 }}
-                onPress={() => setTab(entry.key)}
-              >
-                <View
-                  style={{
-                    paddingVertical: 9,
-                    borderRadius: radius.md - 3,
-                    backgroundColor: selected ? theme.accent : 'transparent',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Text
-                    style={[
-                      type_.footnote,
-                      { color: selected ? textOn(theme.accent) : theme.fg, fontWeight: selected ? '600' : '400' },
-                    ]}
-                  >
-                    {entry.label}
-                    {entry.count ? ` ${entry.count}` : ''}
-                  </Text>
-                </View>
-              </Press>
-            );
-          })}
-        </View>
+        <Segmented<Tab>
+          value={tab}
+          options={tabs}
+          onChange={setTab}
+          background={chipBg}
+          accent={theme.accent}
+          fg={theme.fg}
+          height={34}
+        />
       </View>
 
+      {/* Keyed on the tab so a switch fades the new list in rather than
+          swapping it; the sheet's layout transition eases the height. */}
+      <Animated.View key={tab} entering={FadeIn.duration(180)}>
       {tab === 'contents' ? (
         chapters.length ? (
           <View>
@@ -239,6 +227,7 @@ export function ContentsSheet({
           <Empty text="Select any passage and choose Highlight." muted={muted} />
         )
       ) : null}
+      </Animated.View>
     </Sheet>
   );
 }

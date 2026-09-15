@@ -183,6 +183,14 @@ function glyph(name: string, filled: boolean): ReactNode {
         </>
       );
 
+    case 'arrow.up.right':
+      return (
+        <>
+          <Path d="M7 17L17 7" />
+          <Path d="M9 7h8v8" />
+        </>
+      );
+
     case 'arrow.up.arrow.down':
       return (
         <>

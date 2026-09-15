@@ -2,12 +2,12 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Linking, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { imageUrl } from '@/api/client';
 import { useBook, useToggleFavorite, useToggleFinished } from '@/api/hooks';
-import { authorOf, formatOf, isReadable } from '@/api/types';
+import { authorOf, externalLinksOf, formatOf, isReadable } from '@/api/types';
 import { showAlert } from '@/lib/alert';
 import { useDismissTo } from '@/lib/navigation';
 import {
@@ -70,6 +70,7 @@ export default function BookDetail() {
   const downloaded = item ? local || isDownloaded(item.Id) : false;
   const downloadRow = item ? getDownload(item.Id) : null;
   const supported = isReadable(format);
+  const links = item ? externalLinksOf(item) : [];
 
   const startDownload = useCallback(async () => {
     if (!session || !item) return;
@@ -165,6 +166,13 @@ export default function BookDetail() {
           {authorOf(item) ? (
             <Text style={[type_.callout, { color: theme.textSecondary, marginTop: 5 }]}>
               {authorOf(item)}
+            </Text>
+          ) : null}
+          {/* Comic Vine and Open Library both file a book under its series;
+              Comic Vine also numbers the issue. */}
+          {item.SeriesName ? (
+            <Text style={[type_.footnote, { color: theme.textTertiary, marginTop: 4 }]}>
+              {seriesLabel(item.SeriesName, item.IndexNumber, format.startsWith('comic'))}
             </Text>
           ) : null}
 
@@ -333,9 +341,48 @@ export default function BookDetail() {
             </View>
           </View>
         ) : null}
+
+        {links.length ? (
+          <View style={{ paddingHorizontal: 24, marginTop: 28 }}>
+            <Text style={[type_.title3, { color: theme.text, marginBottom: 12 }]}>Find Out More</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {links.map((link) => (
+                <Press
+                  key={link.url}
+                  haptic="light"
+                  scaleTo={0.96}
+                  onPress={() => Linking.openURL(link.url).catch(() => {})}
+                >
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      paddingHorizontal: 13,
+                      paddingVertical: 8,
+                      borderRadius: radius.pill,
+                      backgroundColor: theme.tintSoft,
+                    }}
+                  >
+                    <Text style={[type_.footnote, { color: theme.tint, fontWeight: '600' }]}>
+                      {link.name}
+                    </Text>
+                    <Icon name="arrow.up.right" size={10} color={theme.tint} />
+                  </View>
+                </Press>
+              ))}
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
+}
+
+/** "Saga · Issue 3" for comics, "Discworld · Book 3" for everything else. */
+function seriesLabel(series: string, index: number | null | undefined, comic: boolean): string {
+  if (!index) return series;
+  return `${series} · ${comic ? 'Issue' : 'Book'} ${index}`;
 }
 
 function Meta({ text }: { text: string }) {

@@ -68,6 +68,22 @@ export interface DownloadHandle {
   cancel(): void;
 }
 
+/** The engine streams from the server, so there is nothing to fetch ahead. */
+export function bookForReading(
+  session: Session,
+  item: BaseItem,
+  _onProgress?: (fraction: number, bytes: number) => void,
+): DownloadHandle {
+  return { promise: Promise.resolve({ uri: streamUrl(session, item) }), cancel: () => {} };
+}
+
+/** Nothing is cached on disk in the browser build either. */
+export function cacheSize(): number {
+  return 0;
+}
+
+export function clearCache() {}
+
 export function downloadBook(
   session: Session,
   item: BaseItem,
@@ -77,7 +93,7 @@ export function downloadBook(
   // instead of failing. Callers that specifically want an offline copy check
   // `canDownload` first.
   void formatOf(item);
-  return { promise: Promise.resolve({ uri: streamUrl(session, item) }), cancel: () => {} };
+  return bookForReading(session, item);
 }
 
 /** Lets the UI hide "Download" affordances that the browser cannot honour. */

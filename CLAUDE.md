@@ -7,10 +7,12 @@ acting on it.
 ## What this is
 
 Self-Shelf (called **JellyShelf** until the rebrand on 2026-09-10) is an Expo / React Native reader
-for the books, comics and PDFs on the user's own Jellyfin server (the server needs the Bookshelf
-plugin). It also reads EPUBs and PDFs dropped into the app's folder in the Files app. It's built for
-iOS first (iOS 26, Liquid Glass). The same code also ships as a web SPA on Vercel. The Android config
-exists but is untested. It's a solo project by Jack, and the iOS build is in TestFlight beta.
+for the books, comics and PDFs on the user's own Jellyfin server (Jellyfin 12 reads books natively;
+older servers need the Bookshelf plugin, which 12 replaced with the Google Books, Open Library and
+Comic Vine metadata plugins). It also reads EPUBs and PDFs dropped into the app's folder in the
+Files app. It's built for iOS first (iOS 26, Liquid Glass). The same code also ships as a web SPA
+on Vercel. The Android config exists but is untested. It's a solo project by Jack, and the iOS
+build is in TestFlight beta.
 
 ## Commands
 
@@ -61,7 +63,12 @@ public/       static marketing/support site (about.html, support.html, site/)
   sides talk through the typed messages in `src/reader/protocol.ts`, so update both together.
 - **On-disk layout (native).** `Documents/` is the folder the Files app shows as "Self-Shelf". It
   holds the user's own books, which `lib/localBooks.ts` scans. `Documents/.jellyshelf/` holds the
-  engine and Jellyfin downloads.
+  engine, pinned Jellyfin downloads (`books/`) and a read cache (`cache/`).
+- **Read vs. download.** Opening a book calls `bookForReading`, which fetches into `cache/` (1 GB,
+  least-recently-opened evicted, "Recently read" in Settings) and never marks the book Downloaded.
+  Only the Download button (`downloadBook`) pins a copy in `books/`; if the book is already cached
+  it's moved across rather than fetched again. The cache lives under `Documents/` rather than the
+  OS cache dir because the WebView can only read below that one root, so iOS won't purge it.
 - **Theme.** `ui/theme.ts` is a warm, papery palette so covers stay loudest. The brand gradient is
   `shelf.green #7FCA83` → `shelf.teal #2C8A8D`. `ui/Glass.tsx` is the one surface primitive: real
   Liquid Glass where it's available, a blur fallback elsewhere.

@@ -201,7 +201,8 @@
         <section id="getting-started">
           <h2>Getting started</h2>
           <ol class="steps">
-            <li><strong>Install the Bookshelf plugin</strong>In the Jellyfin dashboard, go to Plugins → Catalog, install <strong>Bookshelf</strong>, then restart your server.</li>
+            <li><strong>Check your server version</strong>Jellyfin 12 and newer read books out of the box. On an older server, go to Plugins → Catalog, install <strong>Bookshelf</strong>, then restart.</li>
+            <li><strong>Add metadata plugins (optional)</strong>On Jellyfin 12, covers and descriptions come from separate plugins: <strong>Google Books</strong> and <strong>Open Library</strong> for books, <strong>Comic Vine</strong> for comics. Install the ones you want from Plugins → Catalog, then turn them on under the library’s metadata settings.</li>
             <li><strong>Add a books library</strong>Go to Dashboard → Libraries and add a library with the content type <strong>Books</strong> that points at your EPUB, PDF, CBZ and CBR files. Let the scan finish.</li>
             <li><strong>Sign in to Self-Shelf</strong>Enter your server address, like <code>jellyfin.home.lan:8096</code>, then your username and password. You can also use Quick Connect.</li>
             <li><strong>Start reading</strong>Your shelves fill in right away. Tap a book to open it, or download it to read offline.</li>
@@ -242,7 +243,7 @@
             <summary>I signed in, but my books aren’t showing up</summary>
             <div class="answer">
               <ul>
-                <li>Check that the <strong>Bookshelf</strong> plugin is installed and that your server was restarted afterward.</li>
+                <li>On Jellyfin 11 or older, check that the <strong>Bookshelf</strong> plugin is installed and that your server was restarted afterward. Jellyfin 12 needs no plugin to see books.</li>
                 <li>Make sure the library’s content type is set to <strong>Books</strong>, then run a library scan.</li>
                 <li>Check that your Jellyfin user has access to that library under Dashboard → Users → Library Access.</li>
               </ul>
@@ -331,7 +332,7 @@
           <ul class="checklist">
             <li>Your Self-Shelf version (Settings → Self-Shelf)</li>
             <li>Your device and iOS version, or your browser if you’re using the web version</li>
-            <li>Your Jellyfin server version and Bookshelf plugin version</li>
+            <li>Your Jellyfin server version, and which book plugins you have (Bookshelf, Google Books, Open Library, Comic Vine)</li>
             <li>The file format (EPUB, PDF, CBZ or CBR), and whether it happens with every book or just one</li>
             <li>What you expected to happen and what happened instead, with a screenshot if you can</li>
           </ul>

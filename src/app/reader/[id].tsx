@@ -18,7 +18,7 @@ import { engineKindFor, formatOf } from '@/api/types';
 import { isLocalId, localFileFor } from '@/lib/localBooks';
 import { useDismissTo } from '@/lib/navigation';
 import { promptForText } from '@/lib/prompt';
-import { downloadBook, ensureReaderEngine, localBookFile } from '@/lib/storage';
+import { bookForReading, ensureReaderEngine } from '@/lib/storage';
 import { useAppearance } from '@/state/appearance';
 import { useAuth } from '@/state/auth';
 import {
@@ -50,7 +50,7 @@ import { maxReaderWidth, radius, readerColumn, type as type_ } from '@/ui/theme'
 
 import { AppearanceSheet } from '@/reader/AppearanceSheet';
 import { ContentsSheet } from '@/reader/ContentsSheet';
-import type { Chapter, ReaderEvent, ReaderPosition } from '@/reader/protocol';
+import type { Chapter, ReaderEvent, ReaderPosition, SelectionAction } from '@/reader/protocol';
 import { ReaderView, type ReaderHandle } from '@/reader/ReaderView';
 import { Scrubber } from '@/reader/Scrubber';
 
@@ -121,19 +121,16 @@ export default function Reader() {
           return;
         }
 
-        const existing = localBookFile(item);
-        if (existing) {
-          setBookUri(existing.uri);
-        } else {
-          if (!session) throw new Error('Sign in to download this book.');
-          setDownloadPercent(0);
-          const task = downloadBook(session, item, (fraction) => {
-            if (!cancelled) setDownloadPercent(fraction);
-          });
-          const file = await task.promise;
-          if (cancelled) return;
-          setBookUri(file.uri);
-        }
+        // Anything from Jellyfin is fetched into the cache (or found already
+        // there, or pinned as a download); nothing here marks it Downloaded.
+        if (!session) throw new Error('Sign in to read this book.');
+        const task = bookForReading(session, item, (fraction) => {
+          if (!cancelled) setDownloadPercent(fraction);
+        });
+        setDownloadPercent(0);
+        const file = await task.promise;
+        if (cancelled) return;
+        setBookUri(file.uri);
       } catch (e) {
         if (!cancelled) setError((e as Error)?.message ?? 'This book could not be opened.');
       } finally {
@@ -259,8 +256,11 @@ export default function Reader() {
   );
 
   const onSelectionAction = useCallback(
-    (action: 'highlight' | 'note', text: string) => {
-      const selection = lastSelection.current;
+    (action: SelectionAction, text: string, location: string) => {
+      // The engine resolves the selection at the moment of the tap; the last
+      // reported one only stands in if that somehow came back empty.
+      const selection = location ? { text, location } : lastSelection.current;
+      if (__DEV__) console.log('[reader] selectionAction', action, selection);
       if (!id || !selection) return;
 
       const create = (note: string | null) => {
@@ -360,7 +360,7 @@ export default function Reader() {
         <Text style={[type_.subhead, { color: theme.fg, opacity: 0.6, textAlign: 'center' }]}>
           {downloadPercent === null
             ? 'Preparing…'
-            : `Downloading ${Math.round(downloadPercent * 100)}%`}
+            : `Loading ${Math.round(downloadPercent * 100)}%`}
         </Text>
         {downloadPercent !== null ? (
           <ProgressBar percent={downloadPercent} style={{ width: 180 }} color={theme.accent} />
