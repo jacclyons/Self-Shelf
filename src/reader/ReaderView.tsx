@@ -91,6 +91,28 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
 ) {
   const webRef = useRef<WebView>(null);
   const [ready, setReady] = useState(false);
+  const loadStarted = useRef(false);
+  const readyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
+
+  const reportError = useCallback((message: string) => {
+    if (readyTimer.current) clearTimeout(readyTimer.current);
+    readyTimer.current = null;
+    onEventRef.current({ type: 'error', message });
+  }, []);
+
+  useEffect(() => {
+    if (loadStarted.current) return;
+    // Only time out the local engine document, never a large book's download or decoding.
+    readyTimer.current = setTimeout(() => {
+      reportError('The reader did not start. Tap Retry to reload it. If this keeps happening, close and reopen Self-Shelf.');
+    }, 20_000);
+    return () => {
+      if (readyTimer.current) clearTimeout(readyTimer.current);
+      readyTimer.current = null;
+    };
+  }, [reportError]);
 
   const call = useCallback((expression: string) => {
     webRef.current?.injectJavaScript(`${expression}; true;`);
@@ -144,9 +166,14 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
       }
 
       if (parsed.type === 'ready') {
+        if (loadStarted.current) return;
+        loadStarted.current = true;
+        if (readyTimer.current) clearTimeout(readyTimer.current);
+        readyTimer.current = null;
         setReady(true);
         lastSent.current = { settings: settingsPayload, theme: themePayload };
         const payload = {
+          managedLoading: true,
           kind,
           url: relativeBookPath(bookUri, engineUri),
           location: initialLocation ?? null,
@@ -155,7 +182,18 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
           settings: JSON.parse(settingsPayload),
           theme: JSON.parse(themePayload),
         };
-        call(`window.JS.load(${JSON.stringify(payload)})`);
+        // Catch bridge/API failures as well as rejections; engine-reported file
+        // errors continue through the normal message path below.
+        call(`(function () {
+          function failed() {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'error',
+              message: 'The reader could not start opening this file. Tap Retry. If it fails again, check that the file opens in another reader.'
+            }));
+          }
+          try { Promise.resolve(window.JS.load(${JSON.stringify(payload)})).catch(failed); }
+          catch (error) { failed(); }
+        })()`);
       }
 
       if (parsed.type === 'selectionAction') {
@@ -226,7 +264,9 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
         }}
         setSupportMultipleWindows={false}
         style={{ flex: 1, backgroundColor: theme.bg }}
-        onRenderProcessGone={() => onEvent({ type: 'error', message: 'The reader ran out of memory.' })}
+        onError={() => reportError('The reader’s local files could not be opened. Tap Retry to reload them. If it still fails, close and reopen Self-Shelf.')}
+        onContentProcessDidTerminate={() => reportError('iOS stopped the reader, often because memory is low. Close other apps and tap Retry. A smaller comic may help if it happens again.')}
+        onRenderProcessGone={() => reportError('Android stopped the reader, often because memory is low. Close other apps and tap Retry. A smaller comic may help if it happens again.')}
       />
     </View>
   );

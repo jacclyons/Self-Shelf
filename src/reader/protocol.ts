@@ -1,7 +1,17 @@
+/** Progress is per stage, not an invented percentage of the entire opening process. */
+export interface ReaderLoadingProgress {
+  stage: 'download' | 'reading' | 'unpacking' | 'rendering';
+  fraction?: number;
+  bytes?: number;
+  completed?: number;
+  total?: number;
+}
+
 /** Messages the reader engine (WebView) posts back to React Native. */
 export type ReaderEvent =
   | { type: 'ready' }
-  | { type: 'loaded'; kind: 'epub' | 'pdf'; title?: string; author?: string; pageCount?: number; chapters: Chapter[] }
+  | ({ type: 'loading' } & ReaderLoadingProgress)
+  | { type: 'loaded'; kind: 'epub' | 'pdf' | 'comic'; title?: string; author?: string; pageCount?: number; chapters: Chapter[] }
   | {
       type: 'location';
       percent: number;

@@ -1,0 +1,174 @@
+/**
+ * One-shot classic CBR worker, concatenated AFTER unrar.jstxt in a Blob.
+ * Send { data: ArrayBuffer, wasmBinary: ArrayBuffer }, transferring both buffers.
+ * No fetch/importScripts is needed, including in a WKWebView loaded over file://.
+ *
+ * Success: entries in archive order, progress (0/total), then page + progress for
+ * each image, then done only after the extraction iterator has been exhausted.
+ * Failure: one error, possibly after partial pages/progress, and never done.
+ * The host keeps encoded image Blobs, bounds decoded images, and MUST terminate
+ * this worker on done/error (or cancellation) to reclaim the WASM singleton.
+ */
+;(function () {
+  'use strict';
+
+  const IMAGE_RE = /\.(jpe?g|png|gif|webp|avif|bmp)$/i;
+  const PASSWORD_ERROR = 'Password-protected or encrypted CBR archives are not supported. Use an unencrypted archive instead.';
+  const VOLUME_ERROR = 'Multi-part CBR archives are not supported. Use a single-volume archive instead.';
+  const CORRUPT_ERROR = 'This CBR archive is corrupt or incomplete. Try downloading it again.';
+  let started = false;
+
+  /** Keep original names for matching; normalize separators only for filtering. */
+  function isComicImage(header) {
+    if (header.flags.directory || !IMAGE_RE.test(header.name)) return false;
+    const parts = header.name.replace(/\\/g, '/').split('/');
+    return !parts[parts.length - 1].startsWith('.') &&
+      !parts.some(part => part === '__MACOSX' || part.startsWith('._'));
+  }
+
+  /** Prefer the vendor's reason codes over its generic native error messages. */
+  function errorMessage(error) {
+    const reason = error && error.reason;
+    const message = typeof error === 'string' ? error : error && error.message;
+    if (reason === 'ERAR_MISSING_PASSWORD' || reason === 'ERAR_BAD_PASSWORD' || /password|encrypt/i.test(message || '')) {
+      return PASSWORD_ERROR;
+    }
+    if (/multi[- ]?(part|volume)|(?:missing|next|required) volume/i.test(message || '')) {
+      return VOLUME_ERROR;
+    }
+    switch (reason) {
+      case 'ERAR_BAD_ARCHIVE':
+        return 'This file is not a valid CBR/RAR archive.';
+      case 'ERAR_UNKNOWN_FORMAT':
+        return 'This CBR uses an unsupported RAR format. Try converting it to CBZ.';
+      case 'ERAR_BAD_DATA':
+      case 'ERAR_EREAD':
+        return CORRUPT_ERROR;
+      case 'ERAR_EREFERENCE':
+        return 'This CBR has a missing or unsupported RAR file reference. Try converting it to CBZ.';
+      case 'ERAR_EOPEN':
+        return 'This CBR could not be opened. It may be incomplete or require another volume.';
+      case 'ERAR_NO_MEMORY':
+        return 'There is not enough memory to open this comic. Try a smaller archive.';
+      default:
+        return message ? 'Could not open this comic: ' + message : 'Could not open this comic.';
+    }
+  }
+
+  /**
+   * ExtractorData retains every output, even when its iterator is used lazily.
+   * Its yielded bytes are already copied out of WASM, but remove the backing
+   * virtual file too so pages cannot accumulate here. Solid dictionaries live
+   * in UnRAR, not these files. RAR5 references to released files are unsupported
+   * and can fail with ERAR_EREFERENCE instead of retaining the entire comic.
+   *
+   * These internals are specific to the vendored unrar.jstxt. Use the fd map,
+   * not the record's fd: the vendor's create() increments currentFd twice.
+   */
+  function releaseOutput(extractor, name) {
+    const path = extractor.getExtractedFileName(name);
+    delete extractor.dataFiles[path];
+    for (const fd in extractor.dataFileMap) {
+      if (extractor.dataFileMap[fd] === path) delete extractor.dataFileMap[fd];
+    }
+  }
+
+  /** Close even when generator.return() bypasses the vendor's loop-end cleanup. */
+  function dispose(extractor) {
+    try {
+      // Decoder errors usually close this themselves; never delete it twice.
+      if (extractor._archive) extractor.closeArc();
+    } finally {
+      extractor.dataFiles = {};
+      extractor.dataFileMap = {};
+    }
+  }
+
+  async function openComic(data, wasmBinary) {
+    if (!(data instanceof ArrayBuffer) || !(wasmBinary instanceof ArrayBuffer)) {
+      throw new Error('The comic data and decoder binary must be ArrayBuffers.');
+    }
+    if (!data.byteLength) throw new Error('This CBR file is empty.');
+    if (!wasmBinary.byteLength || typeof UnrarJS === 'undefined' || typeof UnrarJS.createExtractorFromData !== 'function') {
+      throw new Error('The comic decoder failed to load.');
+    }
+
+    const extractor = await UnrarJS.createExtractorFromData({ data, wasmBinary });
+    try {
+      const list = extractor.getFileList();
+      const names = [];
+      const seen = new Set();
+      let duplicate = false;
+      let encrypted = list.arcHeader.flags.headerEncrypted;
+      const volume = list.arcHeader.flags.volume;
+      try {
+        // Fully list even an unsupported archive before extraction or publication.
+        for (const header of list.fileHeaders) {
+          encrypted = encrypted || header.flags.encrypted;
+          if (!isComicImage(header)) continue;
+          duplicate = duplicate || seen.has(header.name);
+          seen.add(header.name);
+          names.push(header.name);
+        }
+      } catch (error) {
+        // A missing later volume may interrupt listing with a generic read error.
+        if (encrypted) throw new Error(PASSWORD_ERROR);
+        if (volume) throw new Error(VOLUME_ERROR);
+        throw error;
+      }
+      if (encrypted) throw new Error(PASSWORD_ERROR);
+      if (volume) throw new Error(VOLUME_ERROR);
+      if (duplicate) throw new Error('This CBR has duplicate image names. Rename the duplicate pages or convert it to CBZ.');
+      if (!names.length) throw new Error('This CBR contains no supported images. It may be empty or use an unsupported image format.');
+
+      const total = names.length;
+      self.postMessage({ type: 'entries', names });
+      self.postMessage({ type: 'progress', completed: 0, total });
+
+      // A predicate skips non-images via UnRAR's skip operation, preserving solid
+      // archive handling. Unlike the filename-array API it never exits early:
+      // trailing headers/errors are visited and closeArc runs before done.
+      const result = extractor.extract({ files: isComicImage });
+      let completed = 0;
+      for (const file of result.files) {
+        try {
+          if (!isComicImage(file.fileHeader)) continue;
+          if (file.fileHeader.flags.encrypted) throw new Error(PASSWORD_ERROR);
+          if (file.fileHeader.name !== names[completed]) throw new Error(CORRUPT_ERROR);
+          if (!(file.extraction instanceof Uint8Array) || !file.extraction.byteLength) {
+            throw new Error('An image could not be extracted or is empty. The CBR may be corrupt or unsupported.');
+          }
+          if (typeof file.fileHeader.unpSize === 'number' && file.extraction.byteLength !== file.fileHeader.unpSize) {
+            throw new Error(CORRUPT_ERROR);
+          }
+          // Own an exact-sized buffer; never transfer a WASM view or detach a
+          // decoder buffer that a native callback might still access.
+          const page = new Uint8Array(file.extraction).buffer;
+          self.postMessage({ type: 'page', name: file.fileHeader.name, data: page }, [page]);
+        } finally {
+          releaseOutput(extractor, file.fileHeader.name);
+        }
+        self.postMessage({ type: 'progress', completed: ++completed, total });
+        // Yield between pages, rather than eagerly spreading the iterator. The
+        // host can show any ready page, including a resumed page, before done.
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      if (completed !== total) throw new Error(CORRUPT_ERROR);
+    } finally {
+      // No draining after a failure: close directly and let the host terminate.
+      dispose(extractor);
+    }
+    self.postMessage({ type: 'done' });
+  }
+
+  self.onmessage = async function (event) {
+    if (started) return;
+    started = true;
+    const message = event.data || {};
+    try {
+      await openComic(message.data, message.wasmBinary);
+    } catch (error) {
+      self.postMessage({ type: 'error', message: errorMessage(error) });
+    }
+  };
+})();

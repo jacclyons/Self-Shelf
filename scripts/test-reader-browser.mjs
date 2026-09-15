@@ -1,0 +1,255 @@
+/**
+ * Real-engine smoke tests with Chrome, no added dependencies.
+ * Run: node scripts/test-reader-browser.mjs [path-to-Chrome]
+ * Uses an ephemeral local HTTP server and temporary Chrome profile; both are
+ * torn down on success or failure. Does not exercise WKWebView or solid RAR.
+ */
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { readFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+const require = createRequire(import.meta.url);
+const JSZip = require('../assets/reader/jszip.jstxt');
+const chromePath = process.argv[2] || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+const zip = new JSZip();
+for (let i = 12; i >= 1; i--) zip.file(`page${i}.png`, png);
+zip.file('__MACOSX/._page.png', png);
+zip.file('notes.txt', 'Not a comic page');
+const cbz = await zip.generateAsync({ type: 'nodebuffer' });
+const badZip = new JSZip();
+badZip.file('page1.png', 'not an image');
+badZip.file('page2.png', png);
+const badImageCbz = await badZip.generateAsync({ type: 'nodebuffer' });
+const epubZip = new JSZip();
+epubZip.file('mimetype', 'application/epub+zip');
+epubZip.file('META-INF/container.xml', '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+epubZip.file('book.opf', '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">test</dc:identifier><dc:title>Reader test</dc:title><dc:language>en</dc:language></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine><itemref idref="chapter"/></spine></package>');
+epubZip.file('chapter.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Test</title></head><body><h1>Chapter one</h1><p>A readable first page.</p></body></html>');
+epubZip.file('nav.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml">Chapter one</a></li></ol></nav></body></html>');
+const epub = await epubZip.generateAsync({ type: 'nodebuffer' });
+const pdfObjects = [
+  '<< /Type /Catalog /Pages 2 0 R >>',
+  '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+  '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 4 0 R /Resources << >> >>',
+  '<< /Length 23 >>\nstream\n0 0 100 100 re 0.5 g f\n\nendstream',
+];
+let pdfSource = '%PDF-1.4\n';
+const offsets = [0];
+for (let i = 0; i < pdfObjects.length; i++) {
+  offsets.push(Buffer.byteLength(pdfSource));
+  pdfSource += `${i + 1} 0 obj\n${pdfObjects[i]}\nendobj\n`;
+}
+const xref = Buffer.byteLength(pdfSource);
+pdfSource += `xref\n0 5\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+const pdf = Buffer.from(pdfSource);
+
+/** Stored RAR4 fixture with real CRCs; the decoder tests cover malformed headers. */
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function block(type, flags, payload) {
+  const b = Buffer.alloc(7 + payload.length);
+  b[2] = type;
+  b.writeUInt16LE(flags, 3);
+  b.writeUInt16LE(b.length, 5);
+  payload.copy(b, 7);
+  b.writeUInt16LE(crc32(b.subarray(2)) & 0xffff);
+  return b;
+}
+const rarBlocks = [Buffer.from('526172211a0700', 'hex'), block(0x73, 0, Buffer.alloc(6))];
+for (let i = 1; i <= 80; i++) {
+  const name = Buffer.from(`page${i}.png`);
+  const payload = Buffer.alloc(25 + name.length);
+  payload.writeUInt32LE(png.length, 0);
+  payload.writeUInt32LE(png.length, 4);
+  payload[8] = 2;
+  payload.writeUInt32LE(crc32(png), 9);
+  payload[17] = 20;
+  payload[18] = 0x30;
+  payload.writeUInt16LE(name.length, 19);
+  payload.writeUInt32LE(0x20, 21);
+  name.copy(payload, 25);
+  rarBlocks.push(block(0x74, 0x8000, payload), png);
+}
+rarBlocks.push(block(0x7b, 0, Buffer.alloc(0)));
+const cbr = Buffer.concat(rarBlocks);
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/comic.cbz' || url.pathname === '/chunked.cbz') {
+    res.setHeader('Content-Type', 'application/zip');
+    if (url.pathname === '/comic.cbz') res.setHeader('Content-Length', cbz.length);
+    res.write(cbz.subarray(0, 30));
+    setTimeout(() => res.end(cbz.subarray(30)), 180);
+    return;
+  }
+  if (url.pathname === '/book.epub') { res.end(epub); return; }
+  if (url.pathname === '/book.pdf') { res.end(pdf); return; }
+  if (url.pathname === '/comic.cbr') { res.end(cbr); return; }
+  if (url.pathname === '/bad-image.cbz') { res.end(badImageCbz); return; }
+  const assetName = url.pathname.slice('/reader/'.length);
+  if (!url.pathname.startsWith('/reader/') || !/^[a-z.-]+$/.test(assetName)) {
+    res.writeHead(404).end();
+    return;
+  }
+  const name = assetName.endsWith('.js') ? assetName.replace(/\.js$/, '.jstxt') : assetName;
+  try {
+    const bytes = await readFile(path.join(root, 'assets/reader', name));
+    res.setHeader('Content-Type', name.endsWith('.html') ? 'text/html' : name.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
+    res.end(bytes);
+  } catch { res.writeHead(404).end(); }
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const base = `http://127.0.0.1:${server.address().port}`;
+await mkdir(path.join(root, '.expo'), { recursive: true });
+const profile = await mkdtemp(path.join(root, '.expo/reader-browser-'));
+const chrome = spawn(chromePath, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+let socket;
+const deadline = setTimeout(() => { console.error('Browser tests timed out.'); chrome.kill('SIGKILL'); }, 60_000);
+try {
+  const debuggerUrl = await new Promise((resolve, reject) => {
+    chrome.on('error', reject);
+    chrome.on('exit', code => reject(new Error(`Chrome exited (${code}) before connecting.`)));
+    let text = '';
+    chrome.stderr.on('data', chunk => {
+      text += chunk;
+      const match = text.match(/DevTools listening on (ws:\/\/\S+)/);
+      if (match) resolve(match[1]);
+    });
+  });
+  socket = new WebSocket(debuggerUrl);
+  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+  const pending = new Map();
+  let nextId = 0;
+  socket.onmessage = event => {
+    const data = JSON.parse(event.data);
+    if (!pending.has(data.id)) return;
+    const { resolve, reject } = pending.get(data.id);
+    pending.delete(data.id);
+    if (data.error) reject(new Error(data.error.message));
+    else resolve(data.result);
+  };
+  socket.onclose = () => {
+    for (const { reject } of pending.values()) reject(new Error('Chrome disconnected.'));
+    pending.clear();
+  };
+  function send(method, params = {}, sessionId) {
+    return new Promise((resolve, reject) => {
+      const id = ++nextId;
+      pending.set(id, { resolve, reject });
+      socket.send(JSON.stringify({ id, method, params, sessionId }));
+    });
+  }
+  const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+  const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
+  const call = (method, params) => send(method, params, sessionId);
+  async function evaluate(expression) {
+    const result = await call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    return result.result.value;
+  }
+  async function until(expression) {
+    for (let i = 0; i < 300; i++) {
+      if (await evaluate(expression)) return;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    throw new Error(`Condition did not complete: ${expression}`);
+  }
+  await call('Page.enable');
+  await call('Page.addScriptToEvaluateOnNewDocument', { source: `
+    window.events = [];
+    window.stats = { workers: 0, terminated: 0, loadedImage: false };
+    window.ReactNativeWebView = { postMessage: function (raw) {
+      const event = JSON.parse(raw);
+      events.push(event);
+      if (event.type === 'loaded') {
+        stats.loadedImage = [...document.querySelectorAll('.page img')].some(img => img.complete && img.naturalWidth > 0 && img.style.display !== 'none');
+      }
+    }};
+    const RealWorker = window.Worker;
+    window.Worker = class extends RealWorker {
+      constructor(...args) { super(...args); stats.workers++; }
+      terminate() { stats.terminated++; super.terminate(); }
+    };
+  ` });
+  async function open(file, location = '1', kind = 'comic') {
+    await call('Page.navigate', { url: `${base}/reader/reader.html` });
+    await until(`window.events?.some(event => event.type === 'ready')`);
+    const opts = { kind, url: `${base}/${file}`, location, settings: { flow: 'paged', rtl: false }, theme: {}, managedLoading: true };
+    await evaluate(`window.JS.load(${JSON.stringify(opts)})`);
+  }
+
+  await open('comic.cbz', '3');
+  assert.equal(await evaluate('stats.loadedImage'), true, 'loaded waits for image pixels');
+  assert.equal(await evaluate(`events.find(event => event.type === 'loaded').pageCount`), 12);
+  assert.equal(await evaluate(`events.filter(event => event.type === 'location').at(-1).page`), 3);
+  assert.equal(await evaluate(`events.some(event => event.type === 'loading' && event.stage === 'download' && event.fraction > 0)`), true);
+  await evaluate(`window.visiblePage = document.querySelectorAll('.page')[2]; window.visibleUrl = visiblePage.querySelector('img').src; window.JS.setSettings({ rtl: true });`);
+  await until(`events.filter(event => event.type === 'location').at(-1).page === 10`);
+  assert.equal(await evaluate(`document.querySelectorAll('.page')[9] === visiblePage && visiblePage.querySelector('img').src === visibleUrl`), true, 'RTL preserves the visible image and its URL');
+  assert.equal(await evaluate(`events.filter(event => event.type === 'loaded').length`), 1, 'RTL does not reload');
+  await evaluate(`for (let n = 1; n <= 12; n++) window.JS.goTo(String(n));`);
+  await until(`document.querySelectorAll('.page')[11].dataset.loaded === '1'`);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  assert.ok(await evaluate(`document.querySelectorAll('.page img[src]').length`) <= 7, 'fast navigation bounds decoded images');
+  console.log('PASS CBZ: visible-before-loaded, resume, progress, RTL and rapid navigation');
+
+  await open('chunked.cbz');
+  assert.equal(await evaluate(`events.some(event => event.type === 'loading' && event.stage === 'download' && event.bytes > 0 && event.fraction === undefined)`), true, 'unknown total reports bytes without a fake percentage');
+  console.log('PASS unknown-length download progress');
+
+  await open('comic.cbr', '20');
+  assert.equal(await evaluate('stats.loadedImage'), true);
+  assert.equal(await evaluate('stats.workers'), 1);
+  assert.equal(await evaluate(`events.filter(event => event.type === 'location').at(-1).page`), 20);
+  await until('stats.terminated === 1');
+  assert.equal(await evaluate(`events.filter(event => event.type === 'error').length`), 0);
+  assert.equal(await evaluate(`events.filter(event => event.type === 'loading' && event.stage === 'unpacking').at(-1).completed`), 80);
+  await evaluate(`window.JS.setSettings({ rtl: true }); window.JS.goTo('79');`);
+  await until(`document.querySelectorAll('.page')[78].dataset.loaded === '1'`);
+  assert.equal(await evaluate('stats.workers'), 1, 'CBR revisits do not start another decoder');
+  console.log('PASS CBR: real Worker/WASM, progressive resume, cleanup, RTL and revisits');
+
+  await open('comic.cbr');
+  await evaluate('window.JS.dispose()');
+  assert.equal(await evaluate('stats.terminated'), 1, 'Close terminates active decoder');
+  console.log('PASS decoder cancellation');
+
+  await open('bad-image.cbz');
+  assert.equal(await evaluate(`document.querySelector('.page-notice').textContent.includes('couldn’t be displayed')`), true);
+  await evaluate(`window.JS.goTo('2')`);
+  await until(`document.querySelectorAll('.page')[1].dataset.loaded === '1'`);
+  console.log('PASS corrupt image has readable feedback and can be skipped');
+
+  await open('book.epub', null, 'epub');
+  assert.equal(await evaluate(`events.some(event => event.type === 'loaded' && event.kind === 'epub')`), true);
+  assert.equal(await evaluate(`events.some(event => event.type === 'error')`), false);
+  console.log('PASS EPUB opening regression');
+
+  await open('book.pdf', '1', 'pdf');
+  assert.equal(await evaluate(`events.some(event => event.type === 'loaded' && event.kind === 'pdf')`), true);
+  assert.ok(await evaluate(`document.querySelector('canvas').width`) > 0);
+  assert.equal(await evaluate(`events.some(event => event.type === 'error')`), false);
+  console.log('PASS PDF opening regression');
+} finally {
+  clearTimeout(deadline);
+  socket?.close();
+  const exited = new Promise(resolve => chrome.once('exit', resolve));
+  if (chrome.exitCode === null && chrome.signalCode === null) {
+    chrome.kill('SIGTERM');
+    await exited;
+  }
+  server.closeAllConnections();
+  await new Promise(resolve => server.close(resolve));
+  await rm(profile, { recursive: true, force: true });
+}

@@ -68,11 +68,13 @@ export interface DownloadHandle {
   cancel(): void;
 }
 
+type ProgressFn = (fraction: number, bytes: number) => void;
+
 /** The engine streams from the server, so there is nothing to fetch ahead. */
 export function bookForReading(
   session: Session,
   item: BaseItem,
-  _onProgress?: (fraction: number, bytes: number) => void,
+  _onProgress?: ProgressFn,
 ): DownloadHandle {
   return { promise: Promise.resolve({ uri: streamUrl(session, item) }), cancel: () => {} };
 }
@@ -87,7 +89,7 @@ export function clearCache() {}
 export function downloadBook(
   session: Session,
   item: BaseItem,
-  _onProgress?: (fraction: number, bytes: number) => void,
+  _onProgress?: ProgressFn,
 ): DownloadHandle {
   // Reading works without downloading, so this resolves to the streaming URL
   // instead of failing. Callers that specifically want an offline copy check

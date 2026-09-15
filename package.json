@@ -9,6 +9,8 @@
     "android": "expo run:android",
     "prebuild": "expo prebuild --clean",
     "typecheck": "tsc --noEmit",
+    "test:reader": "node --test scripts/test-comic-worker.mjs scripts/test-reader-storage.mjs",
+    "test:reader:browser": "node scripts/test-reader-browser.mjs",
     "lint": "expo lint",
     "sync:reader": "node scripts/sync-web-reader.mjs",
     "web": "npm run sync:reader && expo start --web",

@@ -5,7 +5,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
+  StyleSheet,
   Text,
   useWindowDimensions,
   View,
@@ -14,7 +14,7 @@ import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut, FadeOutDown, FadeOutUp
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useBook, useProgressSync } from '@/api/hooks';
-import { engineKindFor, formatOf } from '@/api/types';
+import { engineKindFor, formatOf, type BaseItem } from '@/api/types';
 import { isLocalId, localFileFor } from '@/lib/localBooks';
 import { useDismissTo } from '@/lib/navigation';
 import { promptForText } from '@/lib/prompt';
@@ -43,13 +43,14 @@ import {
   themeFor,
   type ReaderSettings,
 } from '@/state/reader';
-import { EmptyState, Icon, ProgressBar } from '@/ui/Bits';
+import { Icon } from '@/ui/Bits';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
 import { maxReaderWidth, radius, readerColumn, type as type_ } from '@/ui/theme';
 
 import { AppearanceSheet } from '@/reader/AppearanceSheet';
 import { ContentsSheet } from '@/reader/ContentsSheet';
+import { LoadingState, type OpeningProgress } from '@/reader/LoadingState';
 import type { Chapter, ReaderEvent, ReaderPosition, SelectionAction } from '@/reader/protocol';
 import { ReaderView, type ReaderHandle } from '@/reader/ReaderView';
 import { Scrubber } from '@/reader/Scrubber';
@@ -62,6 +63,11 @@ const IDLE_FOOTER = 26;
 
 export default function Reader() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  return <BookReader key={id} id={id} />;
+}
+
+/** Each route owns its source and retry lifecycle, independent of metadata refreshes. */
+function BookReader({ id }: { id: string }) {
   const dismiss = useDismissTo(id ? `/book/${id}` : '/');
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -73,13 +79,22 @@ export default function Reader() {
 
   const book = useBook(id);
   const reader = useRef<ReaderHandle>(null);
+  const [item, setItem] = useState<BaseItem | undefined>(book.data);
+  // A retry may use a renewed session, but an auth object refresh must not reopen a book.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [engineUri, setEngineUri] = useState<string | null>(null);
   const [bookUri, setBookUri] = useState<string | null>(null);
-  const [preparing, setPreparing] = useState(true);
-  const [downloadPercent, setDownloadPercent] = useState<number | null>(null);
+  const [loading, setLoading] = useState<OpeningProgress>({ stage: 'metadata' });
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const currentAttempt = useRef(0);
+  const loadedOnce = useRef(false);
+  const stopped = useRef(false);
+  const cancelPreparation = useRef<(() => void) | null>(null);
 
   const [chromeVisible, setChromeVisible] = useState(false);
   const introTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,65 +107,12 @@ export default function Reader() {
   const [highlights, setHighlights] = useState<HighlightRow[]>([]);
   const lastSelection = useRef<{ text: string; location: string } | null>(null);
 
-  const item = book.data;
   const kind = item ? engineKindFor(formatOf(item)) : 'epub';
+  const title = book.data?.Name || item?.Name || 'Your book';
   const { accent } = useAppearance();
   const theme = useMemo(() => themeFor(settings, accent), [settings, accent]);
   const font = useMemo(() => fontFor(settings), [settings]);
   const stored = id ? getProgress(id) : null;
-
-  /* --------------------------- prepare the book --------------------------- */
-
-  useEffect(() => {
-    if (!item) return;
-    const local = isLocalId(item.Id);
-    if (!local && !session) return;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const engine = await ensureReaderEngine();
-        if (cancelled) return;
-        setEngineUri(engine);
-
-        // A book already in the Files folder needs no fetching.
-        if (local) {
-          const file = localFileFor(item.Id);
-          if (!file) throw new Error('That file is no longer in your Self-Shelf folder.');
-          setBookUri(file.uri);
-          return;
-        }
-
-        // Anything from Jellyfin is fetched into the cache (or found already
-        // there, or pinned as a download); nothing here marks it Downloaded.
-        if (!session) throw new Error('Sign in to read this book.');
-        const task = bookForReading(session, item, (fraction) => {
-          if (!cancelled) setDownloadPercent(fraction);
-        });
-        setDownloadPercent(0);
-        const file = await task.promise;
-        if (cancelled) return;
-        setBookUri(file.uri);
-      } catch (e) {
-        if (!cancelled) setError((e as Error)?.message ?? 'This book could not be opened.');
-      } finally {
-        if (!cancelled) {
-          setPreparing(false);
-          setDownloadPercent(null);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [item, session]);
-
-  useEffect(() => {
-    if (!id) return;
-    setBookmarks(listBookmarks(id));
-    setHighlights(listHighlights(id));
-  }, [id]);
 
   /* ------------------------------- progress ------------------------------- */
 
@@ -163,14 +125,139 @@ export default function Reader() {
     saveProgress(id, current.percent, current.location, current.percent >= 0.995);
   }, [id]);
 
+  const clearTimers = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (introTimer.current) clearTimeout(introTimer.current);
+    saveTimer.current = null;
+    introTimer.current = null;
+  }, []);
+
   useEffect(() => {
     return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      if (introTimer.current) clearTimeout(introTimer.current);
+      clearTimers();
       persist();
       flushProgress();
     };
-  }, [flushProgress, persist]);
+  }, [clearTimers, flushProgress, persist]);
+
+  const fail = useCallback((message: string) => {
+    if (stopped.current) return;
+    stopped.current = true;
+    cancelPreparation.current?.();
+    clearTimers();
+    persist();
+    setChromeVisible(false);
+    setShowContents(false);
+    setShowAppearance(false);
+    setError(message);
+  }, [clearTimers, persist]);
+
+  /* --------------------------- prepare the book --------------------------- */
+
+  useEffect(() => {
+    if (item || stopped.current) return;
+    // Keep the first usable source: local metadata enrichment and query refetches
+    // must not restart preparation or swap the file beneath a loaded engine.
+    if (book.data) setItem(book.data);
+    else if (!id) fail('No book was selected. Close the reader and choose a book.');
+    else if (!isLocalId(id) && !session) fail('Sign in to your server, then try opening this book again.');
+    else if (book.isError && !book.isFetching) {
+      fail(book.error?.message || 'Book details could not be fetched. Check your connection and tap Retry.');
+    }
+  }, [book.data, book.error, book.isError, book.isFetching, id, item, session, fail, attempt]);
+
+  useEffect(() => {
+    if (!item || stopped.current) return;
+    const local = isLocalId(item.Id);
+    const sourceSession = sessionRef.current;
+    let cancelled = false;
+    let task: ReturnType<typeof bookForReading> | null = null;
+    const cancel = () => {
+      cancelled = true;
+      task?.cancel();
+      task = null;
+    };
+    cancelPreparation.current = cancel;
+    setLoading({ stage: 'preparing' });
+
+    (async () => {
+      try {
+        if (!local && !sourceSession) throw new Error('Sign in to read this book.');
+        const engine = await ensureReaderEngine();
+        if (cancelled) return;
+        setEngineUri(engine);
+
+        // A book already in the Files folder needs no fetching.
+        if (local) {
+          const file = localFileFor(item.Id);
+          if (!file) throw new Error('That file is no longer in your Self-Shelf folder.');
+          setLoading({ stage: 'opening' });
+          setBookUri(file.uri);
+          return;
+        }
+
+        // Only a progress callback confirms a download; cache hits and web URLs
+        // resolve without one. Zero also means an unknown total in older storage.
+        if (!sourceSession) throw new Error('Sign in to read this book.');
+        task = bookForReading(sourceSession, item, (fraction, bytes) => {
+          if (!cancelled) setLoading({
+            stage: 'download',
+            fraction: typeof fraction === 'number' && fraction > 0 ? fraction : undefined,
+            bytes,
+          });
+        });
+        const file = await task.promise;
+        task = null;
+        if (cancelled) return;
+        setLoading({ stage: 'opening' });
+        setBookUri(file.uri);
+      } catch (e) {
+        if (!cancelled) fail((e as Error)?.message || 'This book could not be opened. Tap Retry to try again.');
+      }
+    })();
+
+    return () => {
+      cancel();
+      if (cancelPreparation.current === cancel) cancelPreparation.current = null;
+    };
+  }, [item, attempt, fail]);
+
+  useEffect(() => {
+    if (!id) return;
+    setBookmarks(listBookmarks(id));
+    setHighlights(listHighlights(id));
+  }, [id]);
+
+  const close = useCallback(() => {
+    stopped.current = true;
+    cancelPreparation.current?.();
+    clearTimers();
+    persist();
+    dismiss();
+  }, [clearTimers, persist, dismiss]);
+
+  const retry = useCallback(() => {
+    if (!stopped.current) return;
+    cancelPreparation.current?.();
+    clearTimers();
+    persist();
+    currentAttempt.current += 1;
+    loadedOnce.current = false;
+    stopped.current = false;
+    setLoaded(false);
+    setChromeVisible(false);
+    setShowContents(false);
+    setShowAppearance(false);
+    setScrubPercent(null);
+    setChapters([]);
+    lastSelection.current = null;
+    setError(null);
+    setEngineUri(null);
+    setBookUri(null);
+    setLoading({ stage: item ? 'preparing' : 'metadata' });
+    setAttempt(currentAttempt.current);
+    if (!item && id && (isLocalId(id) || sessionRef.current)) void book.refetch();
+  }, [book.refetch, clearTimers, id, item, persist]);
 
   const updateSettings = useCallback((patch: Partial<ReaderSettings>) => {
     setSettings((previous) => {
@@ -184,8 +271,17 @@ export default function Reader() {
 
   const handleEvent = useCallback(
     (event: ReaderEvent) => {
+      if (attempt !== currentAttempt.current || stopped.current) return;
       switch (event.type) {
+        case 'loading':
+          // Comics may keep unpacking neighbours after the visible page is ready.
+          if (!loadedOnce.current) setLoading(event);
+          break;
+
         case 'loaded':
+          if (loadedOnce.current) break;
+          loadedOnce.current = true;
+          setLoaded(true);
           setChapters(event.chapters ?? []);
           if (id && isLocalId(id) && (event.title || event.author)) {
             enrichLocalBook(id, { title: event.title, author: event.author });
@@ -220,6 +316,7 @@ export default function Reader() {
           break;
 
         case 'tap':
+          if (!loadedOnce.current) break;
           if (introTimer.current) {
             clearTimeout(introTimer.current);
             introTimer.current = null;
@@ -234,12 +331,11 @@ export default function Reader() {
 
         case 'dismiss':
           // Escape inside the engine. Saves first, the way the close button does.
-          persist();
-          dismiss();
+          close();
           break;
 
         case 'error':
-          setError(event.message);
+          fail(event.message);
           break;
 
         case 'log':
@@ -252,11 +348,12 @@ export default function Reader() {
           break;
       }
     },
-    [id, persist, dismiss],
+    [attempt, id, persist, close, fail],
   );
 
   const onSelectionAction = useCallback(
     (action: SelectionAction, text: string, location: string) => {
+      if (attempt !== currentAttempt.current || stopped.current || !loadedOnce.current) return;
       // The engine resolves the selection at the moment of the tap; the last
       // reported one only stands in if that somehow came back empty.
       const selection = location ? { text, location } : lastSelection.current;
@@ -286,7 +383,7 @@ export default function Reader() {
         promptForText('Add note', selection.text.slice(0, 120), create);
       }
     },
-    [id],
+    [attempt, id],
   );
 
   /* -------------------------------- actions ------------------------------- */
@@ -323,78 +420,45 @@ export default function Reader() {
     }
   }, []);
 
-  const close = useCallback(() => {
-    persist();
-    dismiss();
-  }, [persist, dismiss]);
-
   /* --------------------------------- render -------------------------------- */
 
-  if (error) {
-    return (
-      <View style={{ flex: 1, backgroundColor: theme.bg, justifyContent: 'center' }}>
-        <EmptyState
-          icon="exclamationmark.triangle"
-          title="Couldn't open this book"
-          message={error}
-          action="Close"
-          onAction={dismiss}
-        />
-      </View>
-    );
-  }
-
-  if (preparing || !engineUri || !bookUri || !item) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: theme.bg,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 18,
-          paddingHorizontal: 50,
-        }}
-      >
-        <ActivityIndicator color={theme.accent} />
-        <Text style={[type_.subhead, { color: theme.fg, opacity: 0.6, textAlign: 'center' }]}>
-          {downloadPercent === null
-            ? 'Preparing…'
-            : `Loading ${Math.round(downloadPercent * 100)}%`}
-        </Text>
-        {downloadPercent !== null ? (
-          <ProgressBar percent={downloadPercent} style={{ width: 180 }} color={theme.accent} />
-        ) : null}
-      </View>
-    );
-  }
-
+  const opening = !loaded || !!error;
   const displayPercent = scrubPercent ?? position?.percent ?? stored?.percent ?? 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <StatusBar style={theme.dark ? 'light' : 'dark'} hidden={!chromeVisible} animated />
+      <StatusBar style={theme.dark ? 'light' : 'dark'} hidden={!opening && !chromeVisible} animated />
 
-      <ReaderView
-        key={kind === 'comic' ? `comic-${settings.rtl}` : kind}
-        ref={reader}
-        engineUri={engineUri}
-        bookUri={bookUri}
-        kind={kind}
-        initialLocation={stored?.location ?? null}
-        initialPercent={stored?.percent ?? 0}
-        cachedLocations={id ? cachedLocations(id) : undefined}
-        settings={settings}
-        font={font}
-        theme={theme}
-        insets={{ top: insets.top + IDLE_HEADER, bottom: insets.bottom + IDLE_FOOTER }}
-        onEvent={handleEvent}
-        onSelectionAction={onSelectionAction}
-      />
+      {engineUri && bookUri && item && !error ? (
+        <View
+          style={StyleSheet.absoluteFill}
+          pointerEvents={opening ? 'none' : 'auto'}
+          accessibilityElementsHidden={opening}
+          importantForAccessibility={opening ? 'no-hide-descendants' : 'auto'}
+          aria-hidden={opening}
+        >
+          <ReaderView
+            key={attempt}
+            ref={reader}
+            engineUri={engineUri}
+            bookUri={bookUri}
+            kind={kind}
+            initialLocation={latest.current?.location ?? stored?.location ?? null}
+            initialPercent={latest.current?.percent ?? stored?.percent ?? 0}
+            cachedLocations={id ? cachedLocations(id) : undefined}
+            settings={settings}
+            font={font}
+            theme={theme}
+            insets={{ top: insets.top + IDLE_HEADER, bottom: insets.bottom + IDLE_FOOTER }}
+            onEvent={handleEvent}
+            onSelectionAction={onSelectionAction}
+          />
+        </View>
+      ) : null}
 
       {/* Books keeps a quiet title line and a page count on screen at all times;
           the full chrome only appears on a centre tap. */}
-      {!chromeVisible ? (
+      {!opening && !chromeVisible ? (
         <Animated.View
           entering={FadeIn.duration(240)}
           exiting={FadeOut.duration(140)}
@@ -414,12 +478,12 @@ export default function Reader() {
               },
             ]}
           >
-            {position?.chapter || item.Name}
+            {position?.chapter || title}
           </Text>
         </Animated.View>
       ) : null}
 
-      {!chromeVisible ? (
+      {!opening && !chromeVisible ? (
         <Animated.View
           entering={FadeIn.duration(240)}
           exiting={FadeOut.duration(140)}
@@ -457,7 +521,7 @@ export default function Reader() {
         </Animated.View>
       ) : null}
 
-      {chromeVisible ? (
+      {!opening && chromeVisible ? (
         <>
           <Animated.View
             entering={FadeInUp.duration(220)}
@@ -483,7 +547,7 @@ export default function Reader() {
               <ChromeButton icon="chevron.down" onPress={close} theme={theme} />
               <View style={{ flex: 1, paddingHorizontal: 6 }}>
                 <Text numberOfLines={1} style={[type_.footnote, { color: theme.fg, fontWeight: '600' }]}>
-                  {item.Name}
+                  {title}
                 </Text>
                 {position?.chapter ? (
                   <Text numberOfLines={1} style={[type_.caption2, { color: theme.fg, opacity: 0.5 }]}>
@@ -557,7 +621,7 @@ export default function Reader() {
       ) : null}
 
       <ContentsSheet
-        visible={showContents}
+        visible={!opening && showContents}
         onClose={() => setShowContents(false)}
         chapters={chapters}
         bookmarks={bookmarks}
@@ -578,13 +642,26 @@ export default function Reader() {
       />
 
       <AppearanceSheet
-        visible={showAppearance}
+        visible={!opening && showAppearance}
         onClose={() => setShowAppearance(false)}
         settings={settings}
         onChange={updateSettings}
         theme={theme}
         kind={kind}
       />
+
+      {opening ? (
+        <LoadingState
+          title={title}
+          progress={loading}
+          error={error}
+          comic={kind === 'comic'}
+          theme={theme}
+          insets={insets}
+          onRetry={retry}
+          onClose={close}
+        />
+      ) : null}
     </View>
   );
 }

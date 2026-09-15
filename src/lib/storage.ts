@@ -1,4 +1,5 @@
 import { Asset } from 'expo-asset';
+import { randomUUID } from 'expo-crypto';
 import { Directory, File, Paths } from 'expo-file-system';
 
 import { downloadHeaders, downloadUrl, type Session } from '@/api/client';
@@ -36,6 +37,8 @@ export const CACHE_DIR = new Directory(PRIVATE_DIR, 'cache');
 const CACHE_LIMIT = 1024 ** 3;
 /** kv map of cache file name → when it was last opened, for the LRU order. */
 const CACHE_OPENED_KEY = 'cache.opened';
+/** Interrupted transfers must never be listed or trimmed as readable books. */
+const DOWNLOAD_TEMP_PREFIX = '.download-';
 
 /** Pre-file-sharing builds kept these in a visible `shelf/` folder. */
 function migrateLegacyLayout() {
@@ -49,13 +52,14 @@ function migrateLegacyLayout() {
 }
 
 /** Bump when reader.html or a vendored library changes so devices re-copy. */
-const ENGINE_VERSION = 9;
+const ENGINE_VERSION = 10;
 const ENGINE_VERSION_KEY = 'engine.version';
 
 const ENGINE_FILES: { name: string; module: number }[] = [
   { name: 'reader.html', module: require('../../assets/reader/reader.html') },
   { name: 'unrar.js', module: require('../../assets/reader/unrar.jstxt') },
   { name: 'unrar.wasm', module: require('../../assets/reader/unrar.wasm') },
+  { name: 'comic-worker.js', module: require('../../assets/reader/comic-worker.jstxt') },
   { name: 'jszip.js', module: require('../../assets/reader/jszip.jstxt') },
   { name: 'epub.js', module: require('../../assets/reader/epub.jstxt') },
   { name: 'pdf.js', module: require('../../assets/reader/pdf.jstxt') },
@@ -98,7 +102,10 @@ export function ensureReaderEngine(): Promise<string> {
     }
 
     return html.uri;
-  })();
+  })().catch((error) => {
+    enginePromise = null;
+    throw error;
+  });
   return enginePromise;
 }
 
@@ -146,23 +153,48 @@ function fileNameFor(item: BaseItem): string {
   return `${item.Id}.${extensionFor(formatOf(item), item)}`;
 }
 
-/** Fetches a Jellyfin item into `target`, replacing whatever was there. */
+/** Publishes a Jellyfin item to `target` only after a complete, uncancelled transfer. */
 function fetchInto(
   session: Session,
   item: BaseItem,
   target: File,
   onProgress?: ProgressFn,
 ): DownloadHandle {
-  if (target.exists) target.delete();
   const controller = new AbortController();
-  const promise = File.downloadFileAsync(downloadUrl(session, item.Id), target, {
-    headers: downloadHeaders(session),
-    idempotent: true,
-    signal: controller.signal,
-    onProgress: ({ bytesWritten, totalBytes }) => {
-      onProgress?.(totalBytes > 0 ? bytesWritten / totalBytes : 0, bytesWritten);
-    },
-  });
+  // A retry may start before cancellation finishes. Each attempt owns only its
+  // own staging path, beside the target so promotion stays on the same volume.
+  const stagingUri = new File(target.parentDirectory, `${DOWNLOAD_TEMP_PREFIX}${randomUUID()}.tmp`).uri;
+  const promise = (async () => {
+    try {
+      const staged = await File.downloadFileAsync(downloadUrl(session, item.Id), new File(stagingUri), {
+        headers: downloadHeaders(session),
+        signal: controller.signal,
+        onProgress: ({ bytesWritten, totalBytes }) => {
+          if (!controller.signal.aborted) {
+            onProgress?.(totalBytes > 0 ? bytesWritten / totalBytes : 0, bytesWritten);
+          }
+        },
+      });
+      // Native completion can win the abort race. Do not publish that attempt,
+      // even if the SDK resolves rather than rejects after cancel().
+      if (controller.signal.aborted) {
+        const error = new Error('The download was cancelled.');
+        error.name = 'AbortError';
+        throw error;
+      }
+      staged.moveSync(target, { overwrite: true });
+      return target;
+    } finally {
+      // Wait for the writer to settle before unlinking. moveSync mutates its
+      // File's URI, so cleanup must use the original path, never the moved File.
+      try {
+        const leftover = new File(stagingUri);
+        if (leftover.exists) leftover.delete();
+      } catch {
+        // A leftover stays hidden and cannot become a cache hit on Retry.
+      }
+    }
+  })();
   return { promise, cancel: () => controller.abort() };
 }
 
@@ -183,7 +215,9 @@ function touchCached(file: File) {
 
 function cachedFiles(): File[] {
   if (!CACHE_DIR.exists) return [];
-  return CACHE_DIR.list().filter((entry): entry is File => entry instanceof File);
+  return CACHE_DIR.list().filter(
+    (entry): entry is File => entry instanceof File && !entry.name.startsWith(DOWNLOAD_TEMP_PREFIX),
+  );
 }
 
 /**

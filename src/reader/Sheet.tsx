@@ -1,12 +1,12 @@
-import type { ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import Animated, {
   Easing,
-  FadeIn,
-  FadeOut,
   LinearTransition,
-  SlideInDown,
-  SlideOutDown,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -18,6 +18,8 @@ import { radius, type as type_, useTheme } from '@/ui/theme';
 /** The curve iOS uses for sheet presentation — quick to move, slow to settle. */
 const SHEET_IN = Easing.bezier(0.32, 0.72, 0, 1);
 const SHEET_OUT = Easing.bezier(0.4, 0, 0.9, 0.4);
+const IN_MS = 340;
+const OUT_MS = 240;
 
 interface SheetProps {
   visible: boolean;
@@ -46,6 +48,7 @@ export function Sheet({
 }: SheetProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const isDark = dark ?? theme.scheme === 'dark';
   // Every colour follows `isDark`, never the app palette: a reader sheet over
   // a light page while the app is in dark mode used to get near-white text.
@@ -53,76 +56,107 @@ export function Sheet({
   const closeBg = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(28,22,16,0.07)';
   const closeFg = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(24,21,19,0.55)';
 
+  // The Modal has to outlive `visible` until the sheet is off screen. Hiding
+  // it tears down everything inside in the same frame, so exit animations on
+  // the children never ran and the sheet just vanished. The animation itself
+  // is a shared value rather than entering/exiting, so closing always plays
+  // and only unmounts once it has finished.
+  const [mounted, setMounted] = useState(visible);
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      progress.value = withTiming(1, { duration: IN_MS, easing: SHEET_IN });
+    } else {
+      progress.value = withTiming(0, { duration: OUT_MS, easing: SHEET_OUT }, (finished) => {
+        if (finished) runOnJS(setMounted)(false);
+      });
+    }
+  }, [visible, progress]);
+
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+  // A spring overshoots and reads as a pop; this is the curve iOS uses for its
+  // own sheets, so the panel just rises and settles, then falls away.
+  const panelStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: (1 - progress.value) * windowHeight }],
+  }));
+
   const Body = scroll ? ScrollView : View;
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Animated.View entering={FadeIn.duration(280)} exiting={FadeOut.duration(200)} style={{ flex: 1 }}>
-        <Pressable style={{ flex: 1, backgroundColor: theme.overlay }} onPress={onClose} />
+    <Modal visible={visible || mounted} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[{ flex: 1 }, backdropStyle]}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: theme.overlay }}
+          onPress={onClose}
+          disabled={!visible}
+        />
       </Animated.View>
 
+      {/* The slide lives on a full-screen layer so it can't interfere with the
+          panel's own layout transition below. */}
       <Animated.View
-        // A spring overshoots and reads as a pop; this is the curve iOS uses for
-        // its own sheets, so the panel just rises and settles.
-        entering={SlideInDown.duration(340).easing(SHEET_IN)}
-        exiting={SlideOutDown.duration(240).easing(SHEET_OUT)}
-        // Content that grows or shrinks (a tab switch, Customize opening)
-        // pushes the top edge up or down; this eases it instead of snapping.
-        layout={LinearTransition.duration(260).easing(SHEET_IN)}
-        style={{
-          position: 'absolute',
-          left: 10,
-          right: 10,
-          bottom: Math.max(insets.bottom, 10),
-          maxHeight: maxHeight as unknown as number,
-        }}
+        pointerEvents={visible ? 'box-none' : 'none'}
+        style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }, panelStyle]}
       >
-        <GlassSurface
-          radius={radius.xl}
-          colorScheme={isDark ? 'dark' : 'light'}
+        <Animated.View
+          // Content that grows or shrinks (a tab switch, Customize opening)
+          // pushes the top edge up or down; this eases it instead of snapping.
+          layout={LinearTransition.duration(260).easing(SHEET_IN)}
           style={{
-            borderRadius: radius.xl,
-            overflow: 'hidden',
-            backgroundColor: isDark ? 'rgba(28,26,32,0.88)' : 'rgba(252,250,246,0.9)',
+            position: 'absolute',
+            left: 10,
+            right: 10,
+            bottom: Math.max(insets.bottom, 10),
+            maxHeight: maxHeight as unknown as number,
           }}
         >
-          <View
+          <GlassSurface
+            radius={radius.xl}
+            colorScheme={isDark ? 'dark' : 'light'}
             style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingHorizontal: 20,
-              paddingTop: 18,
-              paddingBottom: 12,
+              borderRadius: radius.xl,
+              overflow: 'hidden',
+              backgroundColor: isDark ? 'rgba(28,26,32,0.88)' : 'rgba(252,250,246,0.9)',
             }}
           >
-            <Text style={[type_.title3, { color: titleColor }]}>{title}</Text>
-            <Press onPress={onClose} haptic="selection" scaleTo={0.9} hitSlop={10}>
-              <View
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 15,
-                  backgroundColor: closeBg,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Icon name="xmark" size={12} color={closeFg} weight="bold" />
-              </View>
-            </Press>
-          </View>
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 20,
+                paddingTop: 18,
+                paddingBottom: 12,
+              }}
+            >
+              <Text style={[type_.title3, { color: titleColor }]}>{title}</Text>
+              <Press onPress={onClose} haptic="selection" scaleTo={0.9} hitSlop={10}>
+                <View
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 15,
+                    backgroundColor: closeBg,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Icon name="xmark" size={12} color={closeFg} weight="bold" />
+                </View>
+              </Press>
+            </View>
 
-          <Body
-            style={scroll ? { flexGrow: 0 } : undefined}
-            contentContainerStyle={
-              scroll ? { paddingBottom: 22 } : undefined
-            }
-            showsVerticalScrollIndicator={false}
-          >
-            {children}
-          </Body>
-        </GlassSurface>
+            <Body
+              style={scroll ? { flexGrow: 0 } : undefined}
+              contentContainerStyle={scroll ? { paddingBottom: 22 } : undefined}
+              showsVerticalScrollIndicator={false}
+            >
+              {children}
+            </Body>
+          </GlassSurface>
+        </Animated.View>
       </Animated.View>
     </Modal>
   );

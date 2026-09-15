@@ -69,6 +69,8 @@
     background: #fff;
   }
   .page.dim canvas, .page.dim img { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.92); }
+  .page-notice { white-space: normal; text-align: center; max-width: 280px; padding: 24px; opacity: 0.7; }
+  #pages.scroll .page.comic:not([data-loaded="1"]) { min-height: 60vh; }
 
   /* --------------- status --------------- */
   #status {
@@ -99,7 +101,7 @@
 <script src="jszip.js"></script>
 <script src="epub.js"></script>
 <script src="pdf.js"></script>
-<script src="unrar.js"></script>
+
 <script>
 (function () {
   'use strict';
@@ -110,7 +112,14 @@
     postMessage: function (payload) { window.parent.postMessage(payload, '*'); }
   } : null);
   function post(msg) { try { RN && RN.postMessage(JSON.stringify(msg)); } catch (e) {} }
-  function fail(message) { setStatus(message, false); post({ type: 'error', message: String(message) }); }
+  var fatalError = false;
+  function fail(message) {
+    if (fatalError || disposed) return;
+    fatalError = true;
+    stopComicWorker();
+    setStatus(managedLoading ? '' : message, false);
+    post({ type: 'error', message: String(message) });
+  }
   function setStatus(text, spinning) {
     var el = document.getElementById('status');
     document.getElementById('statusText').textContent = text || '';
@@ -120,11 +129,59 @@
 
   /* Read a same-origin file:// resource. WKWebView's fetch() refuses file URLs,
      and file:// XHR reports HTTP status 0 on success, so handle both here. */
-  function readBinary(url) {
+  var managedLoading = false;
+  var comicWorker = null;
+  var comicWorkerUrl = null;
+  var disposed = false;
+  var requests = new Set();
+
+  /** The host keeps Close available; standalone readers retain their own status. */
+  function loading(stage, detail) {
+    var message = Object.assign({ type: 'loading', stage: stage }, detail || {});
+    post(message);
+    if (!managedLoading && !state.opened && !fatalError) {
+      var labels = { download: 'Downloading book…', reading: 'Reading file…', unpacking: 'Unpacking images…', rendering: 'Preparing visible page…' };
+      setStatus(labels[stage] + (message.fraction != null ? ' ' + Math.round(message.fraction * 100) + '%' : ''), true);
+    }
+  }
+
+  function stopComicWorker() {
+    if (comicWorker) comicWorker.terminate();
+    if (comicWorkerUrl) URL.revokeObjectURL(comicWorkerUrl);
+    comicWorker = null;
+    comicWorkerUrl = null;
+  }
+
+  function disposeReader() {
+    disposed = true;
+    stopComicWorker();
+    requests.forEach(function (xhr) { xhr.abort(); });
+    requests.clear();
+  }
+  window.addEventListener('pagehide', disposeReader);
+
+  function readBinary(url, reportProgress) {
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
       xhr.responseType = 'arraybuffer';
+      requests.add(xhr);
+      xhr.onloadend = function () { requests.delete(xhr); };
+      xhr.onabort = function () { reject(new Error('Opening cancelled.')); };
+      if (reportProgress) {
+        var stage = /^https?:/i.test(url) ? 'download' : 'reading';
+        loading(stage);
+        var lastUpdate = 0;
+        xhr.onprogress = function (event) {
+          var now = Date.now();
+          if (now - lastUpdate < 120 && event.loaded !== event.total) return;
+          lastUpdate = now;
+          loading(stage, {
+            bytes: event.loaded,
+            fraction: event.lengthComputable && event.total > 0 ? Math.min(1, event.loaded / event.total) : undefined,
+          });
+        };
+      }
       xhr.onload = function () {
         if ((xhr.status === 200 || xhr.status === 0) && xhr.response) resolve(xhr.response);
         else reject(new Error('Could not read the book file (' + xhr.status + ').'));
@@ -137,14 +194,21 @@
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       xhr.open('GET', url, true);
-      xhr.onload = function () { resolve(xhr.responseText); };
-      xhr.onerror = function () { reject(new Error('Could not read ' + url)); };
+      requests.add(xhr);
+      xhr.onloadend = function () { requests.delete(xhr); };
+      xhr.onabort = function () { reject(new Error('Opening cancelled.')); };
+      xhr.onload = function () {
+        if ((xhr.status === 200 || xhr.status === 0) && xhr.responseText) resolve(xhr.responseText);
+        else reject(new Error('The reader decoder could not be loaded. Please try again.'));
+      };
+      xhr.onerror = function () { reject(new Error('The reader decoder could not be loaded. Please try again.')); };
       xhr.send();
     });
   }
 
   var state = {
     kind: null,
+    opened: false,
     settings: {},
     theme: {},
     book: null,
@@ -170,11 +234,18 @@
 
   var TAP_SLOP = 14;
   var TAP_MS = 500;
+  /* A swipe has to start moving well before a long press would begin
+     selecting text, so a slow drag after a press is left to the selection. */
+  var SWIPE_START_MS = 350;
+  /* Release faster than this (px per ms) and the page turns however short the
+     drag; slower, and it has to cover this fraction of the page. */
+  var SWIPE_VELOCITY = 0.3;
+  var SWIPE_FRACTION = 0.2;
 
   /* Thirds, the full height of the screen: the left third turns back, the
      right third turns forward and the middle third toggles the controls.
-     Swipes are handled elsewhere: epub.js's snap scroller for books, and CSS
-     scroll-snap on #pages for PDFs and comics. */
+     Swipes on books are handled by the page drag below; PDFs and comics
+     page with CSS scroll-snap on #pages. */
   function zoneFor(x) {
     var w = window.innerWidth;
     if (x < w / 3) return 'left';
@@ -182,14 +253,125 @@
     return 'center';
   }
 
-  /** Absolute viewport X, translating out of an iframe's own coordinate space. */
-  function viewportX(point, doc) {
-    var x = point.clientX;
+  /** Absolute viewport position, translating out of an iframe's own coordinate space. */
+  function viewportPoint(point, doc) {
+    var x = point.clientX, y = point.clientY;
     try {
       var frame = doc.defaultView.frameElement;
-      if (frame) x += frame.getBoundingClientRect().left;
+      if (frame) {
+        var rect = frame.getBoundingClientRect();
+        x += rect.left;
+        y += rect.top;
+      }
     } catch (e) { /* cross-origin frame: the raw coordinate is the best we have */ }
-    return x;
+    // A touch is always on screen. Deep into a chapter the frame starts
+    // thousands of pixels to the left, so if WebKit ever reports the touch in
+    // the top window's coordinates the sum lands far off screen and every tap
+    // would read as "left". The raw value is the right one in that case.
+    if (x < 0 || x > window.innerWidth) x = point.clientX;
+    if (y < 0 || y > window.innerHeight) y = point.clientY;
+    return { x: x, y: y };
+  }
+
+  function hasSelection(doc) {
+    try {
+      var sel = doc.getSelection();
+      return !!(sel && !sel.isCollapsed && String(sel));
+    } catch (e) { return false; }
+  }
+
+  /** -1 back, 1 forward, 0 stay, for a horizontal release. Finger left is forward. */
+  function swipeDirection(dx, velocity, pageWidth) {
+    var dir = 0;
+    if (Math.abs(velocity) > SWIPE_VELOCITY && (velocity < 0) === (dx < 0)) dir = dx < 0 ? 1 : -1;
+    else if (Math.abs(dx) > pageWidth * SWIPE_FRACTION) dir = dx < 0 ? 1 : -1;
+    return dir;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* EPUB page drag                                                      */
+  /* ------------------------------------------------------------------ */
+
+  /* epub.js lays each chapter out as columns and pages by scrolling its
+     container sideways. Swipes used to rely on its `snap` helper, which
+     listened inside the chapter frames, where iOS delivered nothing until
+     they allowed scripts (see disarmChapter), and which also undid tap
+     turns: it snaps to a scroll position it only caches on scroll events, so
+     a tap that had just turned the page was pulled straight back. The page follows the finger
+     from here instead, then eases onto the nearest page. */
+  var pageDrag = { start: 0, anim: 0, target: null, done: null };
+
+  function epubManager() {
+    var m = state.kind === 'epub' && state.rendition && state.rendition.manager;
+    return m && m.container && m.layout && m.layout.delta ? m : null;
+  }
+
+  /** Stop a settle in progress, landing on its page so the next turn starts aligned. */
+  function settlePageDrag() {
+    if (!pageDrag.anim) return;
+    cancelAnimationFrame(pageDrag.anim);
+    pageDrag.anim = 0;
+    var m = epubManager();
+    if (m && pageDrag.target != null) m.container.scrollLeft = pageDrag.target;
+    var done = pageDrag.done;
+    pageDrag.target = null;
+    pageDrag.done = null;
+    if (done) done();
+  }
+
+  function animatePageTo(el, to, done) {
+    var from = el.scrollLeft;
+    // Quicker for the last few pixels of a long drag than for a whole page.
+    var ms = Math.max(140, Math.min(300, Math.abs(to - from) * 0.75));
+    var t0 = performance.now();
+    pageDrag.target = to;
+    pageDrag.done = done || null;
+    function step(now) {
+      var p = Math.min(1, (now - t0) / ms);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.scrollLeft = from + (to - from) * eased;
+      if (p < 1) { pageDrag.anim = requestAnimationFrame(step); return; }
+      pageDrag.anim = 0;
+      pageDrag.target = null;
+      pageDrag.done = null;
+      if (done) done();
+    }
+    pageDrag.anim = requestAnimationFrame(step);
+  }
+
+  /** False when the page can't follow the finger; the swipe then just turns on release. */
+  function beginPageDrag() {
+    var m = epubManager();
+    // Right-to-left books scroll negatively, and differently per engine.
+    if (!m || m.settings.direction === 'rtl') return false;
+    settlePageDrag();
+    pageDrag.start = m.container.scrollLeft;
+    return true;
+  }
+
+  function movePageDrag(dx) {
+    var m = epubManager();
+    if (!m) return;
+    var el = m.container;
+    el.scrollLeft = Math.max(0, Math.min(el.scrollWidth - el.clientWidth, pageDrag.start - dx));
+  }
+
+  function endPageDrag(dx, velocity) {
+    var m = epubManager();
+    if (!m) return;
+    var el = m.container;
+    var delta = m.layout.delta;
+    var dir = swipeDirection(dx, velocity, delta);
+    var base = Math.round(pageDrag.start / delta) * delta;
+    var target = base + dir * delta;
+    if (dir) post({ type: 'tap', zone: dir > 0 ? 'right' : 'left' });
+    if (target < 0 || target > el.scrollWidth - el.clientWidth + 1) {
+      // The neighbouring chapter isn't laid out yet (or this is the end of
+      // the book): settle back and let epub.js load it, as a tap would.
+      animatePageTo(el, base, dir ? function () { turn(dir); } : null);
+      return;
+    }
+    animatePageTo(el, target);
   }
 
   /* Taps arrive from several places: each chapter iframe, the padded container
@@ -250,28 +432,70 @@
     var fingers = 0;    // touches currently down; more than one is never a tap
     var movedAt = 0;    // when a press last ended as a drag, pinch or cancel
 
+    /* Movement is measured in viewport coordinates, re-read on every event:
+       a chapter frame slides under the finger while the page follows it,
+       which would skew anything measured inside the frame. (epub.js used
+       Touch.screenX for this, which isn't something to lean on either.) */
     function begin(point, touch) {
-      press = { x: point.clientX, y: point.clientY, t: Date.now(), moved: false, touch: touch };
+      var now = Date.now();
+      var at = viewportPoint(point, doc);
+      press = {
+        x: at.x, y: at.y, t: now, moved: false, touch: touch,
+        swipe: false, drag: false, lastX: at.x, lastT: now, velocity: 0,
+      };
     }
     function move(point) {
-      if (!press || press.moved) return;
-      if (Math.abs(point.clientX - press.x) > TAP_SLOP ||
-          Math.abs(point.clientY - press.y) > TAP_SLOP) {
-        press.moved = true;
-        movedAt = Date.now();
+      if (!press) return;
+      var at = viewportPoint(point, doc);
+      var dx = at.x - press.x;
+      var dy = at.y - press.y;
+      if (press.swipe) {
+        var now = Date.now();
+        var dt = now - press.lastT;
+        // Weighted towards the latest movement, so a flick that slows before
+        // lifting doesn't count as fast.
+        if (dt > 0) press.velocity = 0.7 * ((at.x - press.lastX) / dt) + 0.3 * press.velocity;
+        press.lastX = at.x;
+        press.lastT = now;
+        if (press.drag) movePageDrag(dx);
+        return;
+      }
+      if (press.moved || (Math.abs(dx) <= TAP_SLOP && Math.abs(dy) <= TAP_SLOP)) return;
+      press.moved = true;
+      movedAt = Date.now();
+      // A prompt sideways drag on a book turns the page. A slow one, a
+      // vertical one, or one with text selected belongs to WebKit.
+      if (press.touch && state.kind === 'epub' && Math.abs(dx) > Math.abs(dy) &&
+          Date.now() - press.t < SWIPE_START_MS && !hasSelection(doc)) {
+        press.swipe = true;
+        press.drag = beginPageDrag();
+        if (press.drag) movePageDrag(dx);
       }
     }
+    /** Finish a swipe: settle the dragged page, or turn if it couldn't follow. */
+    function release(was, point) {
+      movedAt = Date.now();
+      var dx = point ? viewportPoint(point, doc).x - was.x : 0;
+      var velocity = point ? was.velocity : 0;
+      if (was.drag) { endPageDrag(dx, velocity); return; }
+      var dir = swipeDirection(dx, velocity, window.innerWidth);
+      // Right-to-left books turn forward with a swipe to the right.
+      var rtl = state.rendition && state.rendition.settings && state.rendition.settings.direction === 'rtl';
+      if (dir) turn(rtl ? -dir : dir);
+    }
     function drop() {
+      if (press && press.swipe) release(press, null);
       press = null;
       movedAt = Date.now();
     }
     function end(point, touch) {
       var was = press;
       press = null;
+      if (was && was.swipe) { release(was, point); return; }
       if (was && (was.moved || Date.now() - was.t > TAP_MS)) return;
       if (!was && Date.now() - movedAt < 500) return;
       if (dismissSelection(doc, point)) return;
-      handleTap(viewportX(point, doc), opts, touch);
+      handleTap(viewportPoint(point, doc).x, opts, touch);
     }
     // A tap on a footnote or chapter link follows the link; it isn't a page turn.
     function onLink(e) {
@@ -292,6 +516,7 @@
       var multi = fingers > 1;
       fingers = 0;
       if (multi) drop();
+      else if (press && press.swipe) end(e.changedTouches[0], true);
       else if (onLink(e)) press = null;
       else end(e.changedTouches[0], true);
     }, passive);
@@ -522,21 +747,60 @@
     return out;
   }
 
+  /* Chapter frames have to allow scripts, or WebKit never runs the tap and
+     swipe listeners this page attaches inside them: in a frame sandboxed
+     without allow-scripts, every event on the text went unheard and only the
+     padding around it responded. Allowing scripts must not let the book run
+     its own, so each chapter is disarmed before it is serialised into the
+     frame: scripts and inline handlers are removed, and a CSP forbids any
+     script that gets past that. Listeners added from this page are unaffected,
+     because CSP governs what the frame's document loads, not calls into it. */
+  var XHTML_NS = 'http://www.w3.org/1999/xhtml';
+  function disarmChapter(doc) {
+    try {
+      Array.prototype.slice.call(doc.getElementsByTagNameNS('*', 'script')).forEach(function (el) {
+        el.parentNode.removeChild(el);
+      });
+      Array.prototype.slice.call(doc.getElementsByTagName('*')).forEach(function (el) {
+        Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+          var name = attr.name.toLowerCase();
+          if (name.indexOf('on') === 0 ||
+              (/(^|:)href$|^src$|^action$/.test(name) && /^\s*javascript:/i.test(attr.value))) {
+            el.removeAttributeNode(attr);
+          }
+        });
+      });
+      var root = doc.documentElement;
+      var head = doc.getElementsByTagName('head')[0];
+      if (!head) {
+        head = doc.createElementNS(root.namespaceURI || XHTML_NS, 'head');
+        root.insertBefore(head, root.firstChild);
+      }
+      var csp = doc.createElementNS(root.namespaceURI || XHTML_NS, 'meta');
+      csp.setAttribute('http-equiv', 'Content-Security-Policy');
+      csp.setAttribute('content', "script-src 'none'; object-src 'none'");
+      head.insertBefore(csp, head.firstChild);
+    } catch (e) {
+      post({ type: 'log', message: 'disarm failed: ' + (e && e.message ? e.message : e) });
+    }
+  }
+
   async function loadEpub(opts) {
-    var data = await readBinary(opts.url);
+    var data = await readBinary(opts.url, true);
+    loading('rendering');
     var book = ePub(data);
     state.book = book;
 
     await book.ready;
+    book.spine.hooks.content.register(disarmChapter);
 
     var rendition = book.renderTo('epub', {
       manager: 'continuous',
       flow: 'paginated',
-      snap: true,
       width: '100%',
       height: '100%',
       spread: 'none',
-      allowScriptedContent: false,
+      allowScriptedContent: true,
     });
     state.rendition = rendition;
 
@@ -558,6 +822,7 @@
     setMargins();
 
     state.chapters = flattenToc(book.navigation && book.navigation.toc, 0, [], tocResolver(book));
+    state.opened = true;
     post({
       type: 'loaded',
       kind: 'epub',
@@ -608,7 +873,8 @@
 
   async function loadPdf(opts) {
     await setupPdfWorker();
-    var data = await readBinary(opts.url);
+    var data = await readBinary(opts.url, true);
+    loading('rendering');
     var doc = await pdfjsLib.getDocument({ data: data, isEvalSupported: false }).promise;
     state.pdf = doc;
 
@@ -640,10 +906,12 @@
     } catch (e) {}
     state.chapters = outline;
 
-    post({ type: 'loaded', kind: 'pdf', pageCount: doc.numPages, chapters: outline });
-
-    goToPdfPage(start, false);
+    goToPdfPage(start, false, true);
     await renderAround(start);
+    if (disposed || fatalError) return;
+    state.opened = true;
+    post({ type: 'loaded', kind: 'pdf', pageCount: doc.numPages, chapters: outline });
+    reportPdfLocation();
     setStatus('', true);
     document.getElementById('status').classList.remove('on');
 
@@ -713,14 +981,15 @@
 
   async function renderAround(n) {
     if (state.kind === 'comic') {
+      // Prune before waiting; a slow page must not keep old decoded images alive.
+      for (var i = 1; i <= state.pdfPages.length; i++) {
+        if (Math.abs(i - state.pdfPage) > KEEP_WINDOW) releaseComicPage(i);
+      }
       await renderComicPage(n);
+      if (n !== state.pdfPage || disposed || fatalError) return;
       renderComicPage(n + 1);
       renderComicPage(n - 1);
       renderComicPage(n + 2);
-      // Images are big; hold only a window of them in memory.
-      for (var i = 1; i <= state.pdfPages.length; i++) {
-        if (Math.abs(i - n) > KEEP_WINDOW) releaseComicPage(i);
-      }
       return;
     }
     await renderPage(n);
@@ -758,6 +1027,7 @@
   }
 
   function reportPdfLocation() {
+    if (!state.opened) return;
     var total = state.kind === 'comic' ? state.pageCount : state.pdf ? state.pdf.numPages : 1;
     var percent = total > 1 ? (state.pdfPage - 1) / (total - 1) : 1;
     state.lastPercent = percent;
@@ -773,7 +1043,8 @@
     });
   }
 
-  function goToPdfPage(n, smooth) {
+  function goToPdfPage(n, smooth, opening) {
+    if (!state.pdfPages.length) return;
     var container = document.getElementById('pages');
     var total = state.kind === 'comic' ? state.pageCount : state.pdf.numPages;
     n = Math.max(1, Math.min(total, n));
@@ -784,12 +1055,12 @@
     } else {
       container.scrollTo({ left: (n - 1) * container.clientWidth, behavior: smooth ? 'smooth' : 'auto' });
     }
-    renderAround(n);
+    if (!opening) renderAround(n);
     reportPdfLocation();
   }
 
   /* ------------------------------------------------------------------ */
-  /* Comics (CBZ)                                                        */
+  /* Comics (CBZ + CBR)                                                  */
   /* ------------------------------------------------------------------ */
 
   /** "page2" must sort before "page10", which a plain string sort gets wrong. */
@@ -841,46 +1112,89 @@
     return out;
   }
 
-  /** CBR: RAR needs its own decoder; the wasm is loaded lazily, once. */
-  var unrarWasm = null;
+  /** CBR pages arrive from one sequential extraction, never one archive scan per page. */
   async function rarEntries(data) {
-    if (typeof UnrarJS === 'undefined') {
-      throw new Error('The comic decoder failed to load.');
+    if (typeof Worker === 'undefined') {
+      throw new Error('This browser cannot unpack CBR comics in the background. Try a CBZ copy or a newer browser.');
     }
-    if (!unrarWasm) unrarWasm = await readBinary('unrar.wasm');
-
-    var extractor = await UnrarJS.createExtractorFromData({ wasmBinary: unrarWasm, data: data });
-    var list = extractor.getFileList();
-
-    var out = [];
-    var headers = list.fileHeaders;
-    for (var header of headers) {
-      if (header.flags && header.flags.directory) continue;
-      if (!isComicImage(header.name)) continue;
-      (function (name) {
-        out.push({
-          name: name,
-          read: async function () {
-            // Pulling one page at a time keeps memory flat on long volumes.
-            var result = extractor.extract({ files: [name] });
-            var files = [...result.files];
-            if (!files.length || !files[0].extraction) throw new Error('page missing');
-            return new Blob([files[0].extraction], { type: mimeFor(name) });
-          },
+    var assets = await Promise.all([readText('unrar.js'), readText('comic-worker.js'), readBinary('unrar.wasm')]);
+    if (disposed) throw new Error('Opening cancelled.');
+    comicWorkerUrl = URL.createObjectURL(new Blob([assets[0], '\n', assets[1]], { type: 'text/javascript' }));
+    try { comicWorker = new Worker(comicWorkerUrl); }
+    catch (error) {
+      stopComicWorker();
+      throw new Error('The background comic decoder could not start. Please try again, or use a CBZ copy.');
+    }
+    return new Promise(function (resolve, reject) {
+      var records = new Map();
+      var listed = false;
+      var ended = false;
+      function failed(message) {
+        if (ended || disposed) return;
+        ended = true;
+        var error = new Error(message);
+        records.forEach(function (record) {
+          record.error = error;
+          record.waiters.forEach(function (waiter) { waiter.reject(error); });
+          record.waiters = [];
         });
-      })(header.name);
-    }
-    return out;
+        stopComicWorker();
+        if (listed) fail(message);
+        else reject(error);
+      }
+      comicWorker.onerror = function (event) {
+        event.preventDefault();
+        failed('The comic decoder stopped unexpectedly. Try again, or try a smaller CBZ copy.');
+      };
+      comicWorker.onmessageerror = function () { failed('The comic decoder could not send a page. Please try again.'); };
+      comicWorker.onmessage = function (event) {
+        if (disposed || ended) return;
+        var message = event.data;
+        if (message.type === 'entries') {
+          listed = true;
+          resolve(message.names.map(function (name) {
+            var record = { blob: null, error: null, waiters: [] };
+            records.set(name, record);
+            return {
+              name: name,
+              read: function () {
+                if (record.error) return Promise.reject(record.error);
+                if (record.blob) return Promise.resolve(record.blob);
+                return new Promise(function (resolvePage, rejectPage) {
+                  record.waiters.push({ resolve: resolvePage, reject: rejectPage });
+                });
+              },
+            };
+          }));
+        } else if (message.type === 'page') {
+          var record = records.get(message.name);
+          if (!record) { failed('The comic contains an unexpected page. Try another copy.'); return; }
+          // Keep encoded images, not decoded bitmaps; only the nearby pages become <img>s.
+          record.blob = new Blob([message.data], { type: mimeFor(message.name) });
+          record.waiters.forEach(function (waiter) { waiter.resolve(record.blob); });
+          record.waiters = [];
+        } else if (message.type === 'progress') {
+          loading('unpacking', { completed: message.completed, total: message.total, fraction: message.completed / message.total });
+        } else if (message.type === 'done') {
+          ended = true;
+          stopComicWorker();
+        } else if (message.type === 'error') failed(message.message);
+      };
+      try { comicWorker.postMessage({ data: data, wasmBinary: assets[2] }, [data, assets[2]]); }
+      catch (error) { failed('The comic could not be sent to the background decoder. Please try again.'); }
+    });
   }
 
   async function loadComic(opts) {
-    var data = await readBinary(opts.url);
+    var data = await readBinary(opts.url, true);
+    loading('unpacking');
 
     // RAR archives start with "Rar!"; trust the bytes over the file extension.
     var head = new Uint8Array(data.slice(0, 4));
     var isRar = head[0] === 0x52 && head[1] === 0x61 && head[2] === 0x72 && head[3] === 0x21;
 
     var entries = isRar ? await rarEntries(data) : await zipEntries(data);
+    data = null;
 
     entries.sort(function (a, b) { return naturalCompare(a.name, b.name); });
     if (!entries.length) throw new Error('No images found in this comic archive.');
@@ -897,9 +1211,17 @@
 
     for (var i = 0; i < entries.length; i++) {
       var page = document.createElement('div');
-      page.className = 'page';
+      page.className = 'page comic';
       page.dataset.page = String(i + 1);
-      page.appendChild(document.createElement('img'));
+      var img = document.createElement('img');
+      img.alt = 'Comic page ' + (i + 1);
+      img.style.display = 'none';
+      page.appendChild(img);
+      var notice = document.createElement('div');
+      notice.className = 'page-notice';
+      notice.textContent = 'Preparing page…';
+      notice.setAttribute('role', 'status');
+      page.appendChild(notice);
       container.appendChild(page);
       state.pdfPages.push(page);
     }
@@ -910,35 +1232,61 @@
     if (opts.location) start = Math.max(1, Math.min(entries.length, parseInt(opts.location, 10) || 1));
     else if (opts.percent) start = Math.max(1, Math.round(opts.percent * entries.length));
 
-    post({ type: 'loaded', kind: 'comic', pageCount: entries.length, chapters: [] });
-
-    goToPdfPage(start, false);
+    goToPdfPage(start, false, true);
     await renderAround(start);
+    if (disposed || fatalError) return;
+    state.opened = true;
+    post({ type: 'loaded', kind: 'comic', pageCount: entries.length, chapters: [] });
+    reportPdfLocation();
     setStatus('', true);
     document.getElementById('status').classList.remove('on');
 
     container.addEventListener('scroll', onPdfScroll, { passive: true });
   }
 
-  /** Decoded pages are held only near the reader; the rest are released. */
-  async function renderComicPage(n) {
-    if (n < 1 || n > state.comicEntries.length) return;
+  /** Share in-flight work, including image decoding, so loaded never means a blank page. */
+  function renderComicPage(n) {
+    if (n < 1 || n > state.comicEntries.length) return Promise.resolve();
     var el = state.pdfPages[n - 1];
-    if (el.dataset.loaded === '1' || renderQueue[n]) return;
-    renderQueue[n] = true;
-
-    try {
-      var blob = await state.comicEntries[n - 1].read();
-      var url = URL.createObjectURL(blob);
-      var img = el.querySelector('img');
-      img.src = url;
-      el.dataset.loaded = '1';
-      el.dataset.url = url;
-    } catch (e) {
-      // A corrupt page shouldn't take the whole issue down.
-    } finally {
-      renderQueue[n] = false;
-    }
+    if (el.pending) return el.pending;
+    if (el.dataset.loaded === '1') return Promise.resolve();
+    var entry = state.comicEntries[n - 1];
+    var img = el.querySelector('img');
+    var notice = el.querySelector('.page-notice');
+    notice.style.display = '';
+    notice.textContent = 'Preparing page…';
+    el.pending = (async function () {
+      try {
+        var blob = await entry.read();
+        // Navigation or RTL may have moved this element while its page was unpacking.
+        var index = state.pdfPages.indexOf(el) + 1;
+        if (disposed || fatalError || Math.abs(index - state.pdfPage) > KEEP_WINDOW) return;
+        if (!state.opened && index === state.pdfPage) loading('rendering');
+        var url = URL.createObjectURL(blob);
+        el.dataset.url = url;
+        await new Promise(function (resolve, reject) {
+          img.onload = resolve;
+          img.onerror = function () { reject(new Error('The page image could not be displayed.')); };
+          img.src = url;
+        });
+        el.dataset.loaded = '1';
+        img.style.display = '';
+        notice.style.display = 'none';
+        index = state.pdfPages.indexOf(el) + 1;
+        if (disposed || Math.abs(index - state.pdfPage) > KEEP_WINDOW) releaseComicPage(index);
+      } catch (error) {
+        if (el.dataset.url) URL.revokeObjectURL(el.dataset.url);
+        delete el.dataset.url;
+        img.removeAttribute('src');
+        img.style.display = 'none';
+        notice.textContent = 'This page couldn’t be displayed. You can still turn to the next page.';
+      } finally {
+        img.onload = null;
+        img.onerror = null;
+        el.pending = null;
+      }
+    })();
+    return el.pending;
   }
 
   function releaseComicPage(n) {
@@ -947,7 +1295,10 @@
     if (!el || el.dataset.loaded !== '1') return;
     try { URL.revokeObjectURL(el.dataset.url); } catch (e) {}
     el.querySelector('img').removeAttribute('src');
+    el.querySelector('img').style.display = 'none';
+    delete el.dataset.url;
     el.dataset.loaded = '0';
+    el.querySelector('.page-notice').style.display = '';
   }
 
   /* ------------------------------------------------------------------ */
@@ -1048,6 +1399,8 @@
 
   function turn(direction) {
     if (zoom.scale > 1.01) resetZoom(false);
+    // A page still easing into place would leave the turn half a page out.
+    settlePageDrag();
     if (state.kind === 'epub' && state.rendition) {
       direction > 0 ? state.rendition.next() : state.rendition.prev();
     } else if ((state.kind === 'pdf' && state.pdf) || state.kind === 'comic') {
@@ -1057,22 +1410,27 @@
 
   window.JS = {
     load: function (opts) {
+      managedLoading = !!opts.managedLoading;
       state.kind = opts.kind;
       state.settings = opts.settings || {};
       state.theme = opts.theme || {};
       applyRootTheme();
-      setStatus('Opening…', true);
+      setStatus(managedLoading ? '' : 'Opening…', true);
       var run =
         opts.kind === 'pdf' ? loadPdf(opts) :
         opts.kind === 'comic' ? loadComic(opts) :
         loadEpub(opts);
-      run.catch(function (e) { fail(e && e.message ? e.message : 'This book could not be opened.'); });
+      return run.catch(function (e) {
+        if (!disposed) fail(e && e.message ? e.message : 'This book could not be opened.');
+      });
     },
 
+    dispose: disposeReader,
     next: function () { turn(1); },
     prev: function () { turn(-1); },
 
     goTo: function (location) {
+      settlePageDrag();
       if (state.kind === 'epub' && state.rendition) {
         state.rendition.display(location).catch(function (e) {
           post({ type: 'log', message: 'goTo ' + location + ' failed: ' + (e && e.message ? e.message : e) });
@@ -1084,6 +1442,7 @@
     },
 
     goToPercent: function (p) {
+      settlePageDrag();
       if (state.kind === 'epub' && state.rendition) {
         if (state.locationsReady) {
           var cfi = state.book.locations.cfiFromPercentage(p);
@@ -1097,6 +1456,7 @@
     },
 
     setSettings: function (settings) {
+      var wasRtl = !!state.settings.rtl;
       state.settings = Object.assign({}, state.settings, settings);
       if (state.kind === 'epub') {
         applyEpubStyle();
@@ -1105,7 +1465,19 @@
         state.rendered = {};
         applyPdfTheme();
         requestAnimationFrame(function () { goToPdfPage(state.pdfPage, false); });
-      } else if (state.kind === 'comic') {
+      } else if (state.kind === 'comic' && state.pageCount) {
+        if (wasRtl !== !!state.settings.rtl) {
+          resetZoom(false);
+          state.comicEntries.reverse();
+          state.pdfPages.reverse();
+          state.pdfPage = state.pageCount + 1 - state.pdfPage;
+          var container = document.getElementById('pages');
+          state.pdfPages.forEach(function (page, index) {
+            page.dataset.page = String(index + 1);
+            page.querySelector('img').alt = 'Comic page ' + (index + 1);
+            container.appendChild(page);
+          });
+        }
         applyPdfTheme();
         requestAnimationFrame(function () { goToPdfPage(state.pdfPage, false); });
       }
@@ -1159,11 +1531,12 @@
     },
 
     resize: function () {
+      settlePageDrag();
       if (state.kind === 'epub' && state.rendition) { try { state.rendition.resize(); } catch (e) {} }
       else if (state.kind === 'pdf' && state.pdf) {
         state.rendered = {};
         goToPdfPage(state.pdfPage, false);
-      } else if (state.kind === 'comic') {
+      } else if (state.kind === 'comic' && state.opened) {
         // Images scale with CSS; the page just needs re-centring after rotation.
         goToPdfPage(state.pdfPage, false);
       }

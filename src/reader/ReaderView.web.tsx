@@ -33,7 +33,8 @@ interface ReaderViewProps {
 
 /** The engine's own API, exposed on the iframe's window once it is ready. */
 interface EngineApi {
-  load(payload: unknown): void;
+  load(payload: unknown): void | Promise<void>;
+  dispose(): void;
   setSettings(settings: unknown): void;
   setTheme(theme: unknown): void;
   next(): void;
@@ -97,12 +98,49 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
 ) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const [ready, setReady] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [selection, setSelection] = useState<string | null>(null);
+  const loadStarted = useRef(false);
+  const readyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
+
+  const reportError = useCallback((message: string) => {
+    if (readyTimer.current) clearTimeout(readyTimer.current);
+    readyTimer.current = null;
+    onEventRef.current({ type: 'error', message });
+  }, []);
+
+  useEffect(() => {
+    if (loadStarted.current) return;
+    // Browsers often fire iframe load even for error pages, and may omit error.
+    // This watches only the engine handshake, not a slow book or solid archive.
+    readyTimer.current = setTimeout(() => {
+      reportError('The reader page did not start. Check your connection and tap Retry. If it still fails, reload Self-Shelf and check that browser extensions are not blocking the reader.');
+    }, 20_000);
+    return () => {
+      if (readyTimer.current) clearTimeout(readyTimer.current);
+      readyTimer.current = null;
+    };
+  }, [reportError]);
+
+  useEffect(() => {
+    // Do not steal keyboard or screen-reader focus from Close while opening.
+    if (loaded) frameRef.current?.contentWindow?.focus();
+  }, [loaded]);
 
   const engine = useCallback((): EngineApi | null => {
     const win = frameRef.current?.contentWindow as (Window & { JS?: EngineApi }) | null;
     return win?.JS ?? null;
   }, []);
+
+  const attachFrame = useCallback((frame: HTMLIFrameElement | null) => {
+    if (!frame && frameRef.current) {
+      // An in-flight load Promise can retain the iframe Window after detachment.
+      try { engine()?.dispose(); } catch { /* The frame may already be gone. */ }
+    }
+    frameRef.current = frame;
+  }, [engine]);
 
   useImperativeHandle(
     ref,
@@ -155,20 +193,36 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
       }
 
       if (parsed.type === 'ready') {
-        setReady(true);
-        // Without this the arrow keys go nowhere until the reader is clicked.
-        frameRef.current?.contentWindow?.focus();
-        lastSent.current = { settings: settingsPayload, theme: themePayload };
-        engine()?.load({
-          kind,
-          url: bookUri,
-          location: initialLocation ?? null,
-          percent: initialPercent ?? 0,
-          locations: cachedLocations ?? null,
-          settings: JSON.parse(settingsPayload),
-          theme: JSON.parse(themePayload),
-        });
+        if (loadStarted.current) return;
+        loadStarted.current = true;
+        if (readyTimer.current) clearTimeout(readyTimer.current);
+        readyTimer.current = null;
+        const failed = () => reportError('The reader could not start opening this file. Tap Retry. If it still fails, check your server connection and that the file opens in another reader.');
+        try {
+          const api = engine();
+          if (!api) {
+            failed();
+            return;
+          }
+          setReady(true);
+          lastSent.current = { settings: settingsPayload, theme: themePayload };
+          Promise.resolve(api.load({
+            managedLoading: true,
+            kind,
+            url: bookUri,
+            location: initialLocation ?? null,
+            percent: initialPercent ?? 0,
+            locations: cachedLocations ?? null,
+            settings: JSON.parse(settingsPayload),
+            theme: JSON.parse(themePayload),
+          })).catch(failed);
+        } catch {
+          failed();
+          return;
+        }
       }
+
+      if (parsed.type === 'loaded') setLoaded(true);
 
       // The floating bar stands in for the native selection menu.
       if (parsed.type === 'selection') setSelection(parsed.text);
@@ -194,6 +248,7 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
     kind,
     onEvent,
     onSelectionAction,
+    reportError,
     settingsPayload,
     themePayload,
   ]);
@@ -218,14 +273,25 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
         ]}
       >
         <iframe
-          ref={frameRef}
+          ref={attachFrame}
           src={engineUri}
           title="Reader"
-          style={{ border: 'none', width: '100%', height: '100%', backgroundColor: theme.bg }}
+          tabIndex={loaded ? 0 : -1}
+          aria-hidden={!loaded}
+          onError={() => reportError('The reader page could not be loaded. Check your connection and tap Retry, or reload Self-Shelf.')}
+          onLoad={() => {
+            try {
+              if (typeof engine()?.load === 'function') return;
+            } catch {
+              // A redirect or blocked document can make the frame inaccessible.
+            }
+            reportError('The reader page is missing or blocked. Tap Retry. If it still fails, reload Self-Shelf and check your browser’s content blockers.');
+          }}
+          style={{ border: 'none', width: '100%', height: '100%', backgroundColor: theme.bg, visibility: loaded ? 'visible' : 'hidden' }}
         />
       </View>
 
-      {selection ? (
+      {loaded && selection ? (
         <View style={styles.bar}>
           {(['highlight', 'note'] as const).map((action) => (
             <Pressable key={action} onPress={() => act(action)} style={styles.action}>
