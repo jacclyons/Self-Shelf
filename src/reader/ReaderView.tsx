@@ -10,11 +10,15 @@ import type { ReaderEvent, SelectionAction } from './protocol';
 export interface ReaderHandle {
   next(): void;
   prev(): void;
-  goTo(location: string): void;
+  /** `flash` briefly marks the passage on arrival, for search hits. */
+  goTo(location: string, flash?: boolean): void;
   goToPercent(percent: number): void;
   highlight(id: string, location: string, color: string): void;
   unhighlight(location: string): void;
   clearSelection(): void;
+  /** Full-text search; hits come back as `search` events tagged with `id`. */
+  search(id: number, query: string): void;
+  cancelSearch(): void;
 }
 
 interface ReaderViewProps {
@@ -123,7 +127,7 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
     () => ({
       next: () => call('window.JS.next()'),
       prev: () => call('window.JS.prev()'),
-      goTo: (location) => call(`window.JS.goTo(${JSON.stringify(location)})`),
+      goTo: (location, flash) => call(`window.JS.goTo(${JSON.stringify(location)}, ${!!flash})`),
       goToPercent: (percent) => call(`window.JS.goToPercent(${percent})`),
       highlight: (id, location, color) =>
         call(
@@ -131,6 +135,8 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
         ),
       unhighlight: (location) => call(`window.JS.unhighlight(${JSON.stringify(location)})`),
       clearSelection: () => call('window.JS.clearSelection()'),
+      search: (id, query) => call(`window.JS.search(${id}, ${JSON.stringify(query)})`),
+      cancelSearch: () => call('window.JS.cancelSearch()'),
     }),
     [call],
   );

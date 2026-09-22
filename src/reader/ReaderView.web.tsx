@@ -9,11 +9,15 @@ import type { ReaderEvent, SelectionAction } from './protocol';
 export interface ReaderHandle {
   next(): void;
   prev(): void;
-  goTo(location: string): void;
+  /** `flash` briefly marks the passage on arrival, for search hits. */
+  goTo(location: string, flash?: boolean): void;
   goToPercent(percent: number): void;
   highlight(id: string, location: string, color: string): void;
   unhighlight(location: string): void;
   clearSelection(): void;
+  /** Full-text search; hits come back as `search` events tagged with `id`. */
+  search(id: number, query: string): void;
+  cancelSearch(): void;
 }
 
 interface ReaderViewProps {
@@ -39,12 +43,14 @@ interface EngineApi {
   setTheme(theme: unknown): void;
   next(): void;
   prev(): void;
-  goTo(location: string): void;
+  goTo(location: string, flash?: boolean): void;
   goToPercent(percent: number): void;
   highlight(id: string, location: string, color: string): void;
   unhighlight(location: string): void;
   selectionAction(action: SelectionAction): void;
   clearSelection(): void;
+  search(id: number, query: string): void;
+  cancelSearch(): void;
 }
 
 function engineSettings(
@@ -147,7 +153,7 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
     () => ({
       next: () => engine()?.next(),
       prev: () => engine()?.prev(),
-      goTo: (location) => engine()?.goTo(location),
+      goTo: (location, flash) => engine()?.goTo(location, !!flash),
       goToPercent: (percent) => engine()?.goToPercent(percent),
       highlight: (id, location, color) => engine()?.highlight(id, location, color),
       unhighlight: (location) => engine()?.unhighlight(location),
@@ -155,6 +161,8 @@ export const ReaderView = forwardRef<ReaderHandle, ReaderViewProps>(function Rea
         setSelection(null);
         engine()?.clearSelection();
       },
+      search: (id, query) => engine()?.search(id, query),
+      cancelSearch: () => engine()?.cancelSearch(),
     }),
     [engine],
   );

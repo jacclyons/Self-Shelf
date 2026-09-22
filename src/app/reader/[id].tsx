@@ -51,8 +51,9 @@ import { maxReaderWidth, radius, readerColumn, type as type_ } from '@/ui/theme'
 import { AppearanceSheet } from '@/reader/AppearanceSheet';
 import { ContentsSheet } from '@/reader/ContentsSheet';
 import { LoadingState, type OpeningProgress } from '@/reader/LoadingState';
-import type { Chapter, ReaderEvent, ReaderPosition, SelectionAction } from '@/reader/protocol';
+import type { Chapter, ReaderEvent, ReaderPosition, SearchHit, SelectionAction } from '@/reader/protocol';
 import { ReaderView, type ReaderHandle } from '@/reader/ReaderView';
+import { RibbonBookmark } from '@/reader/RibbonBookmark';
 import { Scrubber } from '@/reader/Scrubber';
 
 const HIGHLIGHT_COLOR = '#F5C84C';
@@ -60,6 +61,11 @@ const HIGHLIGHT_COLOR = '#F5C84C';
 /** Space the always-visible title / page lines occupy above and below the text. */
 const IDLE_HEADER = 30;
 const IDLE_FOOTER = 26;
+
+/** Height of the top chrome bar below the status bar inset: its padding plus a row of buttons. */
+const CHROME_HEADER = 52;
+/** How far the bookmark ribbon hangs below the header when the page is bookmarked. */
+const RIBBON_HANG = 236;
 
 export default function Reader() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -106,6 +112,26 @@ function BookReader({ id }: { id: string }) {
   const [bookmarks, setBookmarks] = useState<BookmarkRow[]>([]);
   const [highlights, setHighlights] = useState<HighlightRow[]>([]);
   const lastSelection = useRef<{ text: string; location: string } | null>(null);
+
+  /* ------------------------------- search --------------------------------- */
+
+  // Hits stream in from the engine tagged with the id of the search that
+  // found them, so a stale search that's still running can't add to the
+  // results of the one that replaced it.
+  const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const searchId = useRef(0);
+  const runSearch = useCallback((query: string) => {
+    const nextId = ++searchId.current;
+    setSearchHits([]);
+    if (!query) {
+      setSearching(false);
+      reader.current?.cancelSearch();
+      return;
+    }
+    setSearching(true);
+    reader.current?.search(nextId, query);
+  }, []);
 
   const kind = item ? engineKindFor(formatOf(item)) : 'epub';
   const title = book.data?.Name || item?.Name || 'Your book';
@@ -315,6 +341,12 @@ function BookReader({ id }: { id: string }) {
           if (id) cacheLocations(id, event.data);
           break;
 
+        case 'search':
+          if (event.id !== searchId.current) break;
+          if (event.results.length) setSearchHits((hits) => hits.concat(event.results));
+          if (event.done) setSearching(false);
+          break;
+
         case 'tap':
           if (!loadedOnce.current) break;
           if (introTimer.current) {
@@ -453,6 +485,22 @@ function BookReader({ id }: { id: string }) {
             onEvent={handleEvent}
             onSelectionAction={onSelectionAction}
           />
+        </View>
+      ) : null}
+
+      {/* The ribbon sits between the page and the chrome, so the header bar
+          covers its top and it looks tucked in behind the buttons. */}
+      {!opening ? (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <View style={[readerColumn, { flex: 1 }]}>
+            <RibbonBookmark
+              visible={chromeVisible && bookmarked}
+              length={insets.top + CHROME_HEADER + RIBBON_HANG}
+              color={theme.accent}
+              dark={theme.dark}
+              style={{ right: 0 }}
+            />
+          </View>
         </View>
       ) : null}
 
@@ -628,7 +676,12 @@ function BookReader({ id }: { id: string }) {
         highlights={highlights}
         theme={theme}
         currentChapter={position?.chapter}
+        canSearch={kind !== 'comic'}
+        searchHits={searchHits}
+        searching={searching}
+        onSearch={runSearch}
         onNavigate={(location) => reader.current?.goTo(location)}
+        onNavigateHit={(location) => reader.current?.goTo(location, true)}
         onDeleteBookmark={(bookmarkId) => {
           removeBookmark(bookmarkId);
           if (id) setBookmarks(listBookmarks(id));

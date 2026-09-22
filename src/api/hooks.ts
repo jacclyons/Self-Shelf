@@ -17,6 +17,7 @@ import {
 import {
   getBookLibraries,
   getBooks,
+  getCurrentUser,
   getGenres,
   pushProgress,
   serverProgressPercent,
@@ -34,6 +35,17 @@ export function useLibraries() {
   return useQuery({
     queryKey: ['libraries', session?.serverUrl, session?.userId],
     queryFn: () => getBookLibraries(session!),
+    enabled: !!session,
+    staleTime: 10 * 60_000,
+  });
+}
+
+/** The signed-in user's current profile (name, avatar tag), refreshed from the server. */
+export function useCurrentUser() {
+  const { session } = useAuth();
+  return useQuery({
+    queryKey: ['me', session?.serverUrl, session?.userId],
+    queryFn: () => getCurrentUser(session!),
     enabled: !!session,
     staleTime: 10 * 60_000,
   });

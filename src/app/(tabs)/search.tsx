@@ -1,8 +1,9 @@
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  InteractionManager,
   Keyboard,
   Text,
   TextInput,
@@ -29,6 +30,26 @@ export default function Search() {
 
   const [text, setText] = useState('');
   const [term, setTerm] = useState('');
+  const input = useRef<TextInput>(null);
+  const navigation = useNavigation();
+
+  // Tapping the Search tab should land you in the field with the keyboard up,
+  // like the search button in Apple's own apps. The screen stays mounted
+  // between visits so autoFocus only fires once, and focusing before the tab
+  // transition has settled drops the keyboard, so wait for interactions to
+  // finish. Focusing on tabPress as well covers re-tapping the tab while it's
+  // already selected, which doesn't refocus the screen.
+  const focusInput = useCallback(() => {
+    const task = InteractionManager.runAfterInteractions(() => input.current?.focus());
+    return () => task.cancel();
+  }, []);
+  useFocusEffect(focusInput);
+  useEffect(
+    // expo-router types the navigation prop generically, so it doesn't know
+    // this screen sits in a tab navigator and emits tabPress.
+    () => navigation.addListener('tabPress' as never, focusInput),
+    [navigation, focusInput],
+  );
 
   // Debounce so we aren't hammering the server on every keystroke.
   useEffect(() => {
@@ -73,6 +94,7 @@ export default function Search() {
             >
               <Icon name="magnifyingglass" size={16} color={theme.textTertiary} />
               <TextInput
+                ref={input}
                 value={text}
                 onChangeText={setText}
                 placeholder="Titles, authors, series"

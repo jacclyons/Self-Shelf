@@ -1,23 +1,28 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import type { SymbolViewProps } from 'expo-symbols';
-import { useCallback, useState } from 'react';
-import { Linking, ScrollView, Text, View } from 'react-native';
+import { useCallback, useState, type ReactNode } from 'react';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CLIENT_VERSION } from '@/api/client';
+import { CLIENT_VERSION, userImageUrl } from '@/api/client';
+import { useCurrentUser } from '@/api/hooks';
 import { showAlert } from '@/lib/alert';
 import { useDismissTo } from '@/lib/navigation';
 import { cacheSize, canDownload, clearAllDownloads, clearCache, downloadsSize, formatBytes } from '@/lib/storage';
 import { useAppearance, type AppearanceChoice } from '@/state/appearance';
 import { useAuth } from '@/state/auth';
 import { listDownloads, wipeLocalData } from '@/state/db';
-import { Icon } from '@/ui/Bits';
+import { DiscordMark, Icon } from '@/ui/Bits';
 import { CloseButton } from '@/ui/CloseButton';
 import { ACCENTS, CUSTOM_ACCENT_ID, textOn } from '@/ui/accents';
 import { ColorWell, colorWellAvailable } from '@/ui/ColorWell';
-import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
-import { radius, readingColumn, type as type_, useTheme } from '@/ui/theme';
+import { radius, readingColumn, serif, type as type_, useTheme } from '@/ui/theme';
+
+/** Invite to the beta testers' chat, linked from Settings > About. */
+const TESTER_DISCORD_URL = 'https://discord.gg/4Q3RT6Vgq';
 
 export default function Settings() {
   const theme = useTheme();
@@ -25,7 +30,11 @@ export default function Settings() {
   const router = useRouter();
   const dismiss = useDismissTo('/');
   const { session, signOut } = useAuth();
+  const queryClient = useQueryClient();
+  const { data: me } = useCurrentUser();
+  const avatar = session ? userImageUrl(session, me?.PrimaryImageTag) : undefined;
 
+  const [refreshing, setRefreshing] = useState(false);
   const [downloads, setDownloads] = useState(() => listDownloads().length);
   const [bytes, setBytes] = useState(() => downloadsSize());
   const [cached, setCached] = useState(() => cacheSize());
@@ -36,6 +45,19 @@ export default function Settings() {
     setCached(cacheSize());
   }, []);
 
+  // Everything the app knows about the library is a cached query, so throwing
+  // the cache away and refetching is a full refresh: new books, changed
+  // metadata, and a rescan of the Files folder. Covers carry their image tag
+  // in the URL, so they bust on their own.
+  const refreshLibrary = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await queryClient.invalidateQueries();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient]);
+
   if (!session) return null;
 
   return (
@@ -44,21 +66,18 @@ export default function Settings() {
       contentContainerStyle={[readingColumn, { padding: 20, paddingBottom: insets.bottom + 40 }]}
     >
       <CloseButton onPress={dismiss} placement="inline" />
-      <Text style={[type_.title1, { color: theme.text, marginBottom: 22, letterSpacing: -0.6 }]}>
+      {/* Ovo only ships one weight, so the title matches the Library's size instead of going bolder. */}
+      <Text
+        style={[
+          type_.largeTitle,
+          { fontFamily: serif, color: theme.text, marginBottom: 22, letterSpacing: -0.4 },
+        ]}
+      >
         Settings
       </Text>
 
-      <GlassSurface
-        radius={radius.lg}
-        style={{
-          borderRadius: radius.lg,
-          padding: 18,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 14,
-          backgroundColor: theme.surfaceAlt,
-        }}
-      >
+      {/* Plain row, not a card: it's a byline for the page, not a control. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 4 }}>
         <View
           style={{
             width: 46,
@@ -67,17 +86,31 @@ export default function Settings() {
             backgroundColor: theme.tintSoft,
             alignItems: 'center',
             justifyContent: 'center',
+            overflow: 'hidden',
           }}
         >
-          <Icon name="person.fill" size={20} color={theme.tint} />
+          {avatar ? (
+            <Image
+              source={{ uri: avatar }}
+              contentFit="cover"
+              transition={220}
+              cachePolicy="disk"
+              style={StyleSheet.absoluteFill}
+              accessibilityIgnoresInvertColors
+            />
+          ) : (
+            <Icon name="person.fill" size={20} color={theme.tint} />
+          )}
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[type_.headline, { color: theme.text }]}>{session.userName}</Text>
+          <Text style={[type_.headline, { fontFamily: serif, color: theme.text }]}>
+            {me?.Name ?? session.userName}
+          </Text>
           <Text numberOfLines={1} style={[type_.footnote, { color: theme.textTertiary }]}>
-            {session.serverName ?? session.serverUrl.replace(/^https?:\/\//, '')}
+            {session.serverUrl.replace(/^https?:\/\//, '')}
           </Text>
         </View>
-      </GlassSurface>
+      </View>
 
       <Section title="Appearance">
         <AppearanceControl />
@@ -86,10 +119,19 @@ export default function Settings() {
 
       <Section title="Storage">
         <Row
+          icon="arrow.clockwise"
+          label={refreshing ? 'Refreshing…' : 'Refresh library'}
+          onPress={refreshing ? undefined : refreshLibrary}
+        />
+        <Row
           icon="arrow.down.circle"
           label="Downloaded books"
           value={`${downloads} · ${formatBytes(bytes)}`}
         />
+        {canDownload ? (
+          <Row icon="clock.arrow.circlepath" label="Recently read" value={formatBytes(cached)} />
+        ) : null}
+        {/* The destructive rows sit together at the bottom, away from the figures they act on. */}
         <Row
           icon="trash"
           label="Remove all downloads"
@@ -113,45 +155,38 @@ export default function Settings() {
           }
         />
         {canDownload ? (
-          <>
-            <Row icon="clock.arrow.circlepath" label="Recently read" value={formatBytes(cached)} />
-            <Row
-              icon="xmark.bin"
-              label="Clear recently read"
-              destructive
-              onPress={() =>
-                showAlert(
-                  'Clear recently read?',
-                  'Books you open are kept for a while so they reopen instantly. Downloads and reading positions are kept.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Clear',
-                      style: 'destructive',
-                      onPress: () => {
-                        clearCache();
-                        refresh();
-                      },
+          <Row
+            icon="xmark.bin"
+            label="Clear recently read"
+            destructive
+            onPress={() =>
+              showAlert(
+                'Clear recently read?',
+                'Books you open are kept for a while so they reopen instantly. Downloads and reading positions are kept.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Clear',
+                    style: 'destructive',
+                    onPress: () => {
+                      clearCache();
+                      refresh();
                     },
-                  ],
-                )
-              }
-            />
-          </>
+                  },
+                ],
+              )
+            }
+          />
         ) : null}
-      </Section>
-
-      <Section title="Server">
-        <Row icon="server.rack" label="Address" value={session.serverUrl.replace(/^https?:\/\//, '')} />
-        <Row
-          icon="safari"
-          label="Open Jellyfin in browser"
-          onPress={() => Linking.openURL(session.serverUrl)}
-        />
       </Section>
 
       <Section title="About">
         <Row icon="info.circle" label="Self-Shelf" value={CLIENT_VERSION} />
+        <Row
+          glyph={<DiscordMark size={17} color={theme.textSecondary} />}
+          label="Join Tester Discord"
+          onPress={() => Linking.openURL(TESTER_DISCORD_URL).catch(() => {})}
+        />
         <Row
           icon="book.closed"
           label="Supported formats"
@@ -382,12 +417,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Row({
   icon,
+  glyph,
   label,
   value,
   onPress,
   destructive,
 }: {
-  icon: Parameters<typeof Icon>[0]['name'];
+  icon?: Parameters<typeof Icon>[0]['name'];
+  /** Drawn in place of `icon`, for marks SF Symbols has no glyph for. */
+  glyph?: ReactNode;
   label: string;
   value?: string;
   onPress?: () => void;
@@ -395,6 +433,7 @@ function Row({
 }) {
   const theme = useTheme();
   const color = destructive ? theme.destructive : theme.text;
+  const iconColor = destructive ? theme.destructive : theme.textSecondary;
 
   const content = (
     <View
@@ -406,7 +445,9 @@ function Row({
         paddingVertical: 15,
       }}
     >
-      <Icon name={icon} size={17} color={destructive ? theme.destructive : theme.textSecondary} />
+      <View style={{ width: 17, alignItems: 'center' }}>
+        {glyph ?? (icon ? <Icon name={icon} size={17} color={iconColor} /> : null)}
+      </View>
       <Text style={[type_.callout, { color, flex: 1 }]}>{label}</Text>
       {value ? (
         <Text style={[type_.footnote, { color: theme.textTertiary }]} numberOfLines={1}>

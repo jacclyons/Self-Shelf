@@ -28,6 +28,11 @@ export type ReaderEvent =
   | { type: 'selectionAction'; action: SelectionAction; text: string; location: string }
   | { type: 'tap'; zone: 'left' | 'right' | 'center' }
   | { type: 'locations'; data: string }
+  /**
+   * Hits for the `search` command that carries this id, a chapter (or PDF
+   * page) at a time. The last message has `done` and no hits of its own.
+   */
+  | { type: 'search'; id: number; results: SearchHit[]; done: boolean }
   | { type: 'totalLocations'; total: number }
   /** Escape from inside the engine; the host decides what closing means. */
   | { type: 'dismiss' }
@@ -36,6 +41,19 @@ export type ReaderEvent =
 
 /** The two things the selection menu can do with a passage. */
 export type SelectionAction = 'highlight' | 'note';
+
+/** One full-text match: the hit and a run of words either side of it. */
+export interface SearchHit {
+  /** Somewhere `goTo` can take you: a range CFI for EPUBs, a page number for PDFs. */
+  location: string;
+  /** The chapter the hit is in, from the table of contents, if it has one. */
+  chapter: string | null;
+  /** PDFs only. */
+  page?: number;
+  before: string;
+  match: string;
+  after: string;
+}
 
 export interface Chapter {
   label: string;

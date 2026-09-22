@@ -2,8 +2,8 @@
   "expo": {
     "name": "Self-Shelf",
     "slug": "self-shelf",
-    "version": "1.0.0",
-    "orientation": "default",
+    "version": "1.4.0",
+    "orientation": "portrait",
     "scheme": "selfshelf",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.jacklyons.self-shelf",
       "appleTeamId": "3272AWQ475",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "requireFullScreen": false,
       "infoPlist": {
         "UIBackgroundModes": [
@@ -62,10 +62,18 @@
         {
           "backgroundColor": "#F6F1E7",
           "dark": {
-            "backgroundColor": "#0B0B0D"
+            "backgroundColor": "#2C2C2C"
           },
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 120
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Ovo.ttf"
+          ]
         }
       ]
     ],

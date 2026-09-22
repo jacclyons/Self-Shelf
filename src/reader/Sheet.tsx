@@ -1,5 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import {
+  Keyboard,
+  type KeyboardEvent,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import Animated, {
   Easing,
   LinearTransition,
@@ -13,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/ui/Bits';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
-import { radius, type as type_, useTheme } from '@/ui/theme';
+import { radius, serif, useTheme } from '@/ui/theme';
 
 /** The curve iOS uses for sheet presentation — quick to move, slow to settle. */
 const SHEET_IN = Easing.bezier(0.32, 0.72, 0, 1);
@@ -28,6 +38,12 @@ interface SheetProps {
   children: ReactNode;
   /** Fraction of the screen the sheet is allowed to occupy. */
   maxHeight?: string;
+  /**
+   * Always fill `maxHeight`, however little is inside. A sheet whose tabs
+   * hold lists of very different lengths would otherwise grow and shrink
+   * on every switch.
+   */
+  fixedHeight?: boolean;
   scroll?: boolean;
   /** Reader sheets follow the page theme, not the system appearance. */
   dark?: boolean;
@@ -42,6 +58,7 @@ export function Sheet({
   title,
   children,
   maxHeight = '76%',
+  fixedHeight = false,
   scroll = true,
   dark,
   fg,
@@ -75,6 +92,38 @@ export function Sheet({
     }
   }, [visible, progress]);
 
+  // The keyboard would otherwise cover the bottom of the sheet, and with it
+  // whatever field summoned it (the search box in Contents). Track its height
+  // and lift the panel to sit just above it, shrinking it if there's no room
+  // left. iOS gives `will` events with the keyboard's own animation timing, so
+  // the panel moves in step with it; Android only reports after the fact.
+  const keyboard = useSharedValue(0);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const ios = Platform.OS === 'ios';
+    const to = (height: number, e: KeyboardEvent) => {
+      keyboard.value = withTiming(height, { duration: ios ? e.duration || 250 : 160, easing: SHEET_IN });
+    };
+    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', (e) =>
+      to(e.endCoordinates.height, e),
+    );
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', (e) => to(0, e));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [keyboard]);
+
+  const restingBottom = Math.max(insets.bottom, 10);
+  const fraction = parseFloat(maxHeight) / 100;
+  const frameStyle = useAnimatedStyle(() => {
+    // The keyboard's height already covers the home indicator, so the panel
+    // only needs its usual 10pt breathing room above it.
+    const bottom = keyboard.value > 0 ? keyboard.value + 10 : restingBottom;
+    const limit = Math.min(windowHeight * fraction, windowHeight - bottom - insets.top - 10);
+    return fixedHeight ? { bottom, height: limit } : { bottom, maxHeight: limit };
+  });
+
   const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
   // A spring overshoots and reads as a pop; this is the curve iOS uses for its
   // own sheets, so the panel just rises and settles, then falls away.
@@ -104,13 +153,7 @@ export function Sheet({
           // Content that grows or shrinks (a tab switch, Customize opening)
           // pushes the top edge up or down; this eases it instead of snapping.
           layout={LinearTransition.duration(260).easing(SHEET_IN)}
-          style={{
-            position: 'absolute',
-            left: 10,
-            right: 10,
-            bottom: Math.max(insets.bottom, 10),
-            maxHeight: maxHeight as unknown as number,
-          }}
+          style={[{ position: 'absolute', left: 10, right: 10 }, frameStyle]}
         >
           <GlassSurface
             radius={radius.xl}
@@ -119,6 +162,11 @@ export function Sheet({
               borderRadius: radius.xl,
               overflow: 'hidden',
               backgroundColor: isDark ? 'rgba(28,26,32,0.88)' : 'rgba(252,250,246,0.9)',
+              // Views don't shrink by default, so without this a tall sheet
+              // would overflow the frame's maxHeight and be clipped at the
+              // bottom instead of scrolling.
+              flex: fixedHeight ? 1 : undefined,
+              flexShrink: 1,
             }}
           >
             <View
@@ -131,7 +179,18 @@ export function Sheet({
                 paddingBottom: 12,
               }}
             >
-              <Text style={[type_.title3, { color: titleColor }]}>{title}</Text>
+              {/* Ovo has no bold cut; the faked weight is the same trick as
+                  the section titles in `ui/Bits.tsx`. */}
+              <Text
+                style={[
+                  { fontFamily: serif, fontSize: 22, lineHeight: 27, color: titleColor, letterSpacing: -0.2 },
+                  Platform.OS === 'web'
+                    ? null
+                    : { textShadowColor: titleColor, textShadowOffset: { width: 0.5, height: 0 }, textShadowRadius: 0 },
+                ]}
+              >
+                {title}
+              </Text>
               <Press onPress={onClose} haptic="selection" scaleTo={0.9} hitSlop={10}>
                 <View
                   style={{
@@ -149,9 +208,13 @@ export function Sheet({
             </View>
 
             <Body
-              style={scroll ? { flexGrow: 0 } : undefined}
-              contentContainerStyle={scroll ? { paddingBottom: 22 } : undefined}
+              style={fixedHeight ? { flex: 1 } : { flexGrow: 0, flexShrink: 1 }}
+              contentContainerStyle={scroll ? { paddingBottom: 28 } : undefined}
               showsVerticalScrollIndicator={false}
+              // A tap on a chapter with the keyboard up should open it, not
+              // just dismiss the keyboard.
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
             >
               {children}
             </Body>

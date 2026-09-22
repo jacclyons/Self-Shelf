@@ -28,7 +28,7 @@ const icons = [
 
 const css = `
   /* The app paints its own background; this stops a white flash on load. */
-  html, body { background-color: #0C0B0E; }
+  html, body { background-color: #2C2C2C; }
   @media (prefers-color-scheme: light) {
     html, body { background-color: #F7F3EC; }
   }

@@ -67,8 +67,16 @@ export interface PublicSystemInfo {
   StartupWizardCompleted?: boolean | null;
 }
 
+/** The slice of Jellyfin's UserDto the app reads: identity plus the avatar's cache tag. */
+export interface UserDto {
+  Id: string;
+  Name?: string | null;
+  PrimaryImageTag?: string | null;
+  ServerId?: string | null;
+}
+
 export interface AuthenticationResult {
-  User?: { Id: string; Name?: string | null; PrimaryImageTag?: string | null; ServerId?: string | null } | null;
+  User?: UserDto | null;
   AccessToken?: string | null;
   ServerId?: string | null;
 }

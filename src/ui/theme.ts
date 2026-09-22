@@ -59,10 +59,12 @@ const light: Palette = {
   success: '#25A05B',
 };
 
+// A soft charcoal rather than near-black, so covers sit on it like on a
+// dark desk instead of floating in space.
 const dark: Palette = {
   scheme: 'dark',
-  bg: '#0C0B0E',
-  bgElevated: '#161519',
+  bg: '#2C2C2C',
+  bgElevated: '#383838',
   surface: 'rgba(255,255,255,0.08)',
   surfaceAlt: 'rgba(255,255,255,0.06)',
   text: '#F4F1EC',
@@ -111,6 +113,18 @@ function withAlpha(hex: string, alpha: number): string {
 }
 
 export const palettes = { light, dark };
+
+/**
+ * Ovo, for the big section titles and the spines, so the shelves read a
+ * little more like a book than an app. It's bundled from `assets/fonts/`
+ * (embedded natively by the `expo-font` plugin, loaded in the root layout on
+ * web), and its family name is the same on every platform. Body text stays
+ * on the system sans. Georgia is the fallback on web while it loads.
+ */
+export const serif = Platform.select({
+  web: "Ovo, Georgia, 'Times New Roman', serif",
+  default: 'Ovo',
+});
 
 /** iOS system type scale, tuned a touch tighter for a bookish feel. */
 export const type = {

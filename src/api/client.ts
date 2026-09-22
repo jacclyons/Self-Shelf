@@ -8,6 +8,7 @@ import type {
   ItemsResponse,
   PublicSystemInfo,
   QuickConnectResult,
+  UserDto,
 } from './types';
 
 export const CLIENT_NAME = 'Self-Shelf';
@@ -272,6 +273,14 @@ export function getBookLibraries(session: Session) {
   return request<ItemsResponse>(session, '/UserViews', {
     query: { userId: session.userId },
   }).then((res) => (res.Items ?? []).filter((v) => v.CollectionType === 'books'));
+}
+
+/**
+ * The signed-in user as the server sees them now. The session only stores
+ * what sign-in returned, so this is where a changed name or avatar shows up.
+ */
+export function getCurrentUser(session: Session) {
+  return request<UserDto>(session, '/Users/Me');
 }
 
 export function getGenres(session: Session, parentId?: string) {

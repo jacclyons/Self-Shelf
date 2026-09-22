@@ -93,6 +93,16 @@ function glyph(name: string, filled: boolean): ReactNode {
     case 'bookmark.fill':
       return <Path d="M6.8 3.6h10.4v17l-5.2-4.3-5.2 4.3z" fill={solid} />;
 
+    case 'square.grid.2x2':
+      return (
+        <>
+          <Rect x="4" y="4" width="6.5" height="6.5" rx="1.4" />
+          <Rect x="13.5" y="4" width="6.5" height="6.5" rx="1.4" />
+          <Rect x="4" y="13.5" width="6.5" height="6.5" rx="1.4" />
+          <Rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.4" />
+        </>
+      );
+
     case 'heart.fill':
       return (
         <Path
@@ -180,6 +190,14 @@ function glyph(name: string, filled: boolean): ReactNode {
           <Circle cx="12" cy="12" r="8.6" fill={solid} />
           <Path d="M12 7.6v8" stroke={filled ? '#fff' : 'currentColor'} />
           <Path d="M8.6 12.2L12 15.6l3.4-3.4" stroke={filled ? '#fff' : 'currentColor'} />
+        </>
+      );
+
+    case 'arrow.clockwise':
+      return (
+        <>
+          <Path d="M19 12a7 7 0 1 1-2.05-4.95" />
+          <Path d="M17.4 3.6v4.2h-4.2" />
         </>
       );
 

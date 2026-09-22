@@ -54,7 +54,7 @@ export function isHex(value: string): boolean {
  * dark palettes in `theme.ts`, repeated here to keep this file import-free.
  */
 const PAPER = '#F7F3EC';
-const INK = '#0C0B0E';
+const INK = '#2C2C2C';
 
 /** Links and selected controls should clear the 3:1 WCAG asks of UI parts. */
 const MIN_CONTRAST = 3;

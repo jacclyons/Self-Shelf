@@ -30,7 +30,8 @@ export default function TabsLayout() {
           sf={{ default: 'book', selected: 'book.fill' }}
           md="menu_book"
         />
-        <NativeTabs.Trigger.Label>Reading Now</NativeTabs.Trigger.Label>
+        {/* Icons only: the labels stay for accessibility but are not drawn. */}
+        <NativeTabs.Trigger.Label hidden>Reading Now</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="library">
@@ -38,12 +39,12 @@ export default function TabsLayout() {
           sf={{ default: 'books.vertical', selected: 'books.vertical.fill' }}
           md="library_books"
         />
-        <NativeTabs.Trigger.Label>Library</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label hidden>Library</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="search" role="search">
         <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
-        <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label hidden>Search</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );

@@ -154,6 +154,7 @@
 
   function disposeReader() {
     disposed = true;
+    searchToken = -1;
     stopComicWorker();
     requests.forEach(function (xhr) { xhr.abort(); });
     requests.clear();
@@ -226,6 +227,7 @@
     chapters: [],
     highlights: {},     // cfi → { id, color }, so marks can be redrawn for a new theme
     lastSelection: null, // the selection epub.js last reported, as { text, location }
+    pdfText: {},         // page number → extracted text, filled lazily by search
   };
 
   /* ------------------------------------------------------------------ */
@@ -1394,6 +1396,209 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Full-text search                                                    */
+  /* ------------------------------------------------------------------ */
+
+  /* Characters of context kept either side of a hit. */
+  var HIT_CONTEXT = 64;
+  /* Enough to scroll through; a commoner word wants a longer query. */
+  var MAX_HITS = 300;
+  /* The id of the search in flight. A newer search, or a cancel, replaces
+     it, and the loop for the old one stops at its next section. */
+  var searchToken = 0;
+
+  var BLOCK_TAGS = /^(p|div|h[1-6]|li|dt|dd|td|th|tr|blockquote|section|article|aside|header|footer|pre|figcaption|figure|hr|nav|table|ul|ol|body)$/;
+  function blockOf(node) {
+    for (var el = node.parentNode; el; el = el.parentNode) {
+      if (el.nodeName && BLOCK_TAGS.test(el.nodeName.toLowerCase())) return el;
+    }
+    return null;
+  }
+
+  /* The section's text as one string plus where each text node starts in
+     it, so a hit can be searched for across node boundaries ("the <i>end</i>")
+     and then mapped back to a DOM range for its CFI. A space is put between
+     one block and the next, or a heading would run straight into the first
+     word of its paragraph in the excerpt; each node's recorded start is
+     taken after the space, so offsets into the string still map exactly. */
+  function sectionText(doc) {
+    var root = doc.body || doc.documentElement || doc;
+    var walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+    var nodes = [], text = '', node, lastBlock = null;
+    while ((node = walker.nextNode())) {
+      var parent = node.parentNode;
+      var tag = parent && parent.nodeName ? parent.nodeName.toLowerCase() : '';
+      if (tag === 'script' || tag === 'style' || tag === 'title') continue;
+      var content = node.textContent;
+      if (!content) continue;
+      var block = blockOf(node);
+      if (block !== lastBlock && text && !/\s$/.test(text) && !/^\s/.test(content)) text += ' ';
+      lastBlock = block;
+      nodes.push({ node: node, start: text.length });
+      text += content;
+    }
+    return { nodes: nodes, text: text };
+  }
+
+  function rangeAt(doc, nodes, at, length) {
+    function locate(offset) {
+      var lo = 0, hi = nodes.length - 1;
+      while (lo < hi) {
+        var mid = (lo + hi + 1) >> 1;
+        if (nodes[mid].start <= offset) lo = mid; else hi = mid - 1;
+      }
+      return { node: nodes[lo].node, offset: offset - nodes[lo].start };
+    }
+    var start = locate(at), end = locate(at + length);
+    var range = doc.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    return range;
+  }
+
+  /* The hit with a run of words either side, trimmed to word boundaries so
+     the excerpt doesn't open or close mid-word. */
+  function excerptAround(text, at, length) {
+    var start = Math.max(0, at - HIT_CONTEXT);
+    var end = Math.min(text.length, at + length + HIT_CONTEXT);
+    var before = text.slice(start, at).replace(/\s+/g, ' ');
+    var after = text.slice(at + length, end).replace(/\s+/g, ' ');
+    if (start > 0) before = '…' + before.replace(/^\S*\s/, '');
+    if (end < text.length) after = after.replace(/\s\S*$/, '') + '…';
+    return { before: before, match: text.slice(at, at + length), after: after };
+  }
+
+  /* Chapter title for each spine href, from the table of contents. A spine
+     item with no entry of its own belongs to the last chapter before it. */
+  function chapterLabels() {
+    var labels = {};
+    state.chapters.forEach(function (chapter) {
+      if (!chapter.href) return;
+      var href = chapter.href.split('#')[0];
+      if (!(href in labels)) labels[href] = chapter.label;
+    });
+    return labels;
+  }
+
+  function yieldToUi() {
+    return new Promise(function (resolve) { setTimeout(resolve, 0); });
+  }
+
+  function postHits(token, hits, done) {
+    post({ type: 'search', id: token, results: hits, done: done });
+  }
+
+  /* Each spine section is loaded from the archive, searched and (unless the
+     rendition already had it) unloaded again, so a long book never has the
+     whole text held in memory at once. Hits are posted a section at a time. */
+  async function searchEpub(token, query) {
+    var book = state.book;
+    var needle = query.toLowerCase();
+    var labels = chapterLabels();
+    var items = (book.spine && book.spine.spineItems) || [];
+    var chapter = null, total = 0;
+    for (var i = 0; i < items.length && total < MAX_HITS; i++) {
+      if (token !== searchToken) return;
+      var item = items[i];
+      if (labels[item.href] != null) chapter = labels[item.href];
+      var wasLoaded = !!item.contents;
+      var hits = [];
+      try {
+        await item.load(book.load.bind(book));
+        var body = sectionText(item.document);
+        var hay = body.text.toLowerCase();
+        var at = hay.indexOf(needle);
+        while (at >= 0 && total + hits.length < MAX_HITS) {
+          var range = rangeAt(item.document, body.nodes, at, needle.length);
+          var hit = excerptAround(body.text, at, needle.length);
+          hit.location = item.cfiFromRange(range);
+          hit.chapter = chapter;
+          hits.push(hit);
+          at = hay.indexOf(needle, at + needle.length);
+        }
+      } catch (e) {
+        post({ type: 'log', message: 'search ' + item.href + ' failed: ' + (e && e.message ? e.message : e) });
+      }
+      if (!wasLoaded) { try { item.unload(); } catch (e) {} }
+      if (token !== searchToken) return;
+      if (hits.length) {
+        total += hits.length;
+        postHits(token, hits, false);
+      }
+      await yieldToUi();
+    }
+    if (token === searchToken) postHits(token, [], true);
+  }
+
+  /* pdf.js hands back positioned runs of text; joined in order they read
+     well enough to search, and the extraction is kept per page for the
+     next query. */
+  async function pdfPageText(n) {
+    if (state.pdfText[n] != null) return state.pdfText[n];
+    var page = await state.pdf.getPage(n);
+    var content = await page.getTextContent();
+    var text = '';
+    content.items.forEach(function (item) {
+      if (item.str) text += item.str;
+      if (item.hasEOL) text += ' ';
+    });
+    text = text.replace(/\s+/g, ' ');
+    state.pdfText[n] = text;
+    return text;
+  }
+
+  async function searchPdf(token, query) {
+    var needle = query.toLowerCase();
+    var labels = chapterLabels();
+    var chapter = null, total = 0;
+    for (var n = 1; n <= state.pdf.numPages && total < MAX_HITS; n++) {
+      if (token !== searchToken) return;
+      if (labels[String(n)] != null) chapter = labels[String(n)];
+      var hits = [];
+      try {
+        var text = await pdfPageText(n);
+        var hay = text.toLowerCase();
+        var at = hay.indexOf(needle);
+        while (at >= 0 && total + hits.length < MAX_HITS) {
+          var hit = excerptAround(text, at, needle.length);
+          hit.location = String(n);
+          hit.chapter = chapter;
+          hit.page = n;
+          hits.push(hit);
+          at = hay.indexOf(needle, at + needle.length);
+        }
+      } catch (e) {
+        post({ type: 'log', message: 'search page ' + n + ' failed: ' + (e && e.message ? e.message : e) });
+      }
+      if (token !== searchToken) return;
+      if (hits.length) {
+        total += hits.length;
+        postHits(token, hits, false);
+      }
+      // Text extraction is already async, but a page with none never yields.
+      if (n % 8 === 0) await yieldToUi();
+    }
+    if (token === searchToken) postHits(token, [], true);
+  }
+
+  /* Briefly marks a search hit once the page has moved to it, so the eye
+     lands on the right line. A passage the reader has highlighted already
+     stands out on its own. */
+  function flashHit(cfi) {
+    if (state.kind !== 'epub' || !state.rendition || state.highlights[cfi]) return;
+    try {
+      state.rendition.annotations.highlight(cfi, {}, null, 'jf-hit', {
+        fill: state.theme.accent || '#2C8A8D',
+        'fill-opacity': state.theme.dark ? '0.5' : '0.35',
+        'mix-blend-mode': state.theme.dark ? 'screen' : 'multiply',
+      });
+      setTimeout(function () {
+        try { state.rendition.annotations.remove(cfi, 'highlight'); } catch (e) {}
+      }, 2200);
+    } catch (e) {}
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Command surface (called from React Native)                          */
   /* ------------------------------------------------------------------ */
 
@@ -1429,10 +1634,12 @@
     next: function () { turn(1); },
     prev: function () { turn(-1); },
 
-    goTo: function (location) {
+    goTo: function (location, flash) {
       settlePageDrag();
       if (state.kind === 'epub' && state.rendition) {
-        state.rendition.display(location).catch(function (e) {
+        state.rendition.display(location).then(function () {
+          if (flash) flashHit(location);
+        }).catch(function (e) {
           post({ type: 'log', message: 'goTo ' + location + ' failed: ' + (e && e.message ? e.message : e) });
         });
       }
@@ -1517,6 +1724,24 @@
       }
       post({ type: 'selectionAction', action: action, text: selection.text, location: selection.location });
     },
+
+    /* Starts a full-text search, replacing any in flight. Hits arrive as
+       `search` messages carrying the same id; the last has `done`. */
+    search: function (id, query) {
+      searchToken = id;
+      var text = String(query || '').trim();
+      if (!text) { postHits(id, [], true); return; }
+      var run =
+        state.kind === 'epub' && state.book ? searchEpub(id, text) :
+        state.kind === 'pdf' && state.pdf ? searchPdf(id, text) :
+        Promise.resolve(postHits(id, [], true));
+      run.catch(function (e) {
+        post({ type: 'log', message: 'search failed: ' + (e && e.message ? e.message : e) });
+        if (searchToken === id) postHits(id, [], true);
+      });
+    },
+
+    cancelSearch: function () { searchToken = -1; },
 
     clearSelection: function () {
       state.lastSelection = null;

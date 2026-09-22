@@ -134,7 +134,7 @@ function SignInForm() {
       <LinearGradient
         colors={
           theme.scheme === 'dark'
-            ? ['#0E2326', '#0C0B0E', '#0C0B0E']
+            ? ['#243B3C', '#2C2C2C', '#2C2C2C']
             : ['#E3E9E3', '#F7F3EC', '#F7F3EC']
         }
         locations={[0, 0.55, 1]}

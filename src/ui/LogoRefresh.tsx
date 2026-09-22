@@ -1,0 +1,374 @@
+/**
+ * Pull-to-refresh drawn with the Self-Shelf mark instead of the system
+ * spinner. As the shelf is pulled down, the outline of the mark (the mono cut,
+ * from assets/images/self-shelf-mono-icon.svg) is traced in the accent, all
+ * four pieces of it in step: the two signal arcs, the bookmark and the dot. At
+ * the trigger point the trace is complete; let go and the mark fills with the
+ * accent and breathes gently while the refresh runs, then rides back up with
+ * the content once it's done.
+ *
+ * Only iOS overscrolls, so only iOS gets the drawn mark. Android falls back to
+ * its own RefreshControl and web (where RefreshControl is a no-op) keeps the
+ * plain ScrollView it always had.
+ */
+
+import * as Haptics from 'expo-haptics';
+import {
+  type ForwardedRef,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
+import { Platform, RefreshControl, ScrollView, type ScrollViewProps, StyleSheet, View } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  interpolate,
+  runOnJS,
+  type SharedValue,
+  useAnimatedProps,
+  useAnimatedRef,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
+import Svg, { ClipPath, Defs, Path } from 'react-native-svg';
+
+import { useReduceMotion } from './motion';
+import { useTheme } from './theme';
+
+/** The space held open above the content while a refresh runs. */
+const HOLD = 64;
+
+/** How far the shelf has to be pulled before letting go triggers a refresh. */
+const THRESHOLD = 88;
+
+/** Rendered size of the mark, in points. */
+const MARK_SIZE = 34;
+
+const MARK_BOX = 2804;
+
+/**
+ * A 1.5pt line at MARK_SIZE, expressed in viewBox units so it doesn't depend
+ * on vectorEffect support. The stroke is drawn at twice this and clipped to
+ * the shape, which keeps it entirely inside the outline: a centred stroke
+ * would spill half its width outward and close up the gaps between the arcs
+ * and the bookmark's cut-out.
+ */
+const STROKE = (MARK_BOX / MARK_SIZE) * 1.5;
+
+/**
+ * A refresh that finishes instantly would only flash the filled mark, so it's
+ * shown for at least this long.
+ */
+const MIN_SHOWN_MS = 600;
+
+/**
+ * The four closed subpaths of the mono mark, each with its own outline length
+ * (measured once, in viewBox units) so that a dash offset traces every piece
+ * to completion at the same moment. Copied from
+ * assets/images/self-shelf-mono-icon.svg; re-measure if that changes.
+ */
+interface MarkPiece {
+  name: string;
+  d: string;
+  length: number;
+}
+
+const MARK_PATHS: MarkPiece[] = [
+  {
+    name: 'outer-arc',
+    length: 6176,
+    d: 'M1435.34,817.468C1200.28,587.538 879.434,445.021 527.912,445.021L483.186,440.495L441.246,427.465L403.413,406.923L370.586,379.836L343.499,347.009L322.957,309.176L309.927,267.236L305.401,222.51L309.927,177.785L322.957,135.845L343.499,98.012L370.586,65.185L403.413,38.098L441.246,17.556L483.186,4.526L527.911,-0C859.23,-0 1170.25,94.329 1435.34,257.375C1936.45,565.573 2273.49,1119.3 2273.49,1745.58L2268.97,1790.31L2255.94,1832.25L2235.39,1870.08L2208.31,1902.91L2175.48,1929.99L2137.65,1950.54L2095.71,1963.57L2050.98,1968.09L2006.26,1963.57L1964.32,1950.54L1926.48,1929.99L1893.66,1902.91L1866.57,1870.08L1846.03,1832.25L1833,1790.31L1828.47,1745.58C1828.47,1383.64 1677.38,1054.22 1435.34,817.468Z',
+  },
+  {
+    name: 'inner-arc',
+    length: 4085,
+    d: 'M1471.3,1950.54L1429.36,1963.57L1384.64,1968.09L1339.91,1963.57L1297.97,1950.54L1260.14,1929.99L1227.31,1902.91L1200.23,1870.08L1179.68,1832.25L1166.65,1790.31L1162.13,1745.58C1162.13,1397.66 875.832,1111.36 527.911,1111.36L483.186,1106.84L441.246,1093.81L403.413,1073.27L370.586,1046.18L343.499,1013.35L322.957,975.519L309.927,933.579L305.401,888.854L309.927,844.128L322.957,802.188L343.499,764.355L370.586,731.528L403.413,704.441L441.246,683.899L483.186,670.869L527.911,666.343C906.678,666.343 1242.52,865.739 1435.34,1164.43C1543.92,1332.62 1607.15,1532.3 1607.15,1745.58L1602.62,1790.31L1589.59,1832.25L1569.05,1870.08L1541.96,1902.91L1509.14,1929.99L1471.3,1950.54Z',
+  },
+  {
+    // With the cut-out that lets the arcs read against it.
+    name: 'bookmark',
+    length: 11365,
+    d: 'M1435.34,160.728L1435.34,81.915C1435.34,63.71 1442.05,46.251 1453.98,33.379C1465.91,20.506 1482.09,13.274 1498.96,13.274L2434.16,13.274C2451.03,13.274 2467.22,20.506 2479.15,33.379C2491.08,46.251 2497.78,63.71 2497.78,81.915L2497.78,2734.52C2497.78,2764.51 2479.74,2791.03 2453.22,2800.01C2426.7,2808.99 2397.84,2798.36 2381.95,2773.75L2018.77,2211.15C2006.88,2192.72 1987.38,2181.74 1966.56,2181.74C1945.75,2181.74 1926.25,2192.72 1914.36,2211.15L1551.17,2773.75C1535.29,2798.36 1506.43,2808.99 1479.91,2800.01C1453.39,2791.03 1435.34,2764.51 1435.34,2734.52L1435.34,2046.52L1437.73,2046.28C1443.26,2045.72 1448.72,2044.6 1454.03,2042.95L1495.97,2029.92C1501.16,2028.31 1506.19,2026.19 1510.97,2023.59L1548.8,2003.05C1553.5,2000.5 1557.93,1997.51 1562.05,1994.11L1594.87,1967.03C1598.96,1963.65 1602.71,1959.9 1606.09,1955.82L1633.17,1922.99C1636.57,1918.87 1639.56,1914.44 1642.11,1909.75L1662.65,1871.91C1665.25,1867.13 1667.37,1862.11 1668.98,1856.91L1682.01,1814.97C1683.66,1809.66 1684.77,1804.2 1685.33,1798.67L1689.86,1753.95C1690.14,1751.17 1690.28,1748.38 1690.28,1745.58C1690.28,1475.51 1596.15,1225.7 1439.19,1027.43C1436.7,1024.3 1435.35,1020.41 1435.35,1016.41C1435.34,1009.53 1435.34,997.747 1435.34,985.355C1435.34,977.892 1440.02,971.228 1447.03,968.685C1454.05,966.143 1461.91,968.266 1466.69,973.996C1640.47,1184.66 1745.34,1453.83 1745.34,1745.58C1745.34,1748.38 1745.48,1751.17 1745.76,1753.95L1750.29,1798.67C1750.85,1804.2 1751.96,1809.66 1753.61,1814.97L1766.64,1856.91C1768.25,1862.11 1770.37,1867.13 1772.97,1871.91L1793.51,1909.75C1796.06,1914.44 1799.05,1918.87 1802.45,1922.99L1829.54,1955.82C1832.91,1959.9 1836.66,1963.65 1840.75,1967.03L1873.57,1994.11C1877.69,1997.51 1882.12,2000.5 1886.82,2003.05L1924.65,2023.59C1929.43,2026.19 1934.45,2028.31 1939.65,2029.92L1981.59,2042.95C1986.9,2044.6 1992.36,2045.72 1997.89,2046.28L2042.61,2050.8C2048.18,2051.36 2053.78,2051.36 2059.35,2050.8L2104.08,2046.28C2109.61,2045.72 2115.07,2044.6 2120.37,2042.95L2162.31,2029.92C2167.51,2028.31 2172.53,2026.19 2177.31,2023.59L2215.15,2003.05C2219.84,2000.5 2224.27,1997.51 2228.39,1994.11L2261.22,1967.03C2265.3,1963.65 2269.06,1959.9 2272.43,1955.82L2299.51,1922.99C2302.91,1918.87 2305.91,1914.44 2308.45,1909.75L2328.99,1871.91C2331.59,1867.13 2333.71,1862.11 2335.32,1856.91L2348.36,1814.97C2350,1809.66 2351.12,1804.2 2351.68,1798.67L2356.2,1753.95C2356.48,1751.17 2356.62,1748.38 2356.62,1745.58C2356.62,1071.63 1984.06,477.875 1435.34,160.728Z',
+  },
+  {
+    name: 'dot',
+    length: 1996,
+    d: 'M623.103,1332.69C798.448,1332.69 940.806,1475.04 940.806,1650.39C940.806,1825.73 798.448,1968.09 623.103,1968.09C447.759,1968.09 305.401,1825.73 305.401,1650.39C305.401,1475.04 447.759,1332.69 623.103,1332.69Z',
+  },
+];
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+interface LogoRefreshScrollViewProps extends Omit<ScrollViewProps, 'refreshControl' | 'onScroll'> {
+  /** Runs the refresh; the mark stays filled until the promise settles. */
+  onRefresh: () => Promise<void>;
+  /**
+   * Where the top of the content sits at rest (the safe-area inset the screen
+   * pads with), so the mark appears in the gap the pull opens rather than
+   * under the status bar.
+   */
+  topInset: number;
+}
+
+/**
+ * A ScrollView whose pull-to-refresh is the mark described above. Drop-in for
+ * a ScrollView with a `refreshControl`, minus the `refreshing` state: the
+ * refresh lasts as long as `onRefresh` does.
+ */
+export const LogoRefreshScrollView = forwardRef<ScrollView, LogoRefreshScrollViewProps>(
+  function LogoRefreshScrollView(props, ref) {
+    if (Platform.OS === 'ios') return <MarkRefreshScrollView {...props} forwardedRef={ref} />;
+    return <FallbackRefreshScrollView {...props} forwardedRef={ref} />;
+  },
+);
+
+type InnerProps = LogoRefreshScrollViewProps & { forwardedRef: ForwardedRef<ScrollView> };
+
+function FallbackRefreshScrollView({ onRefresh, topInset: _, forwardedRef, ...rest }: InnerProps) {
+  const theme = useTheme();
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [onRefresh]);
+  return (
+    <ScrollView
+      ref={forwardedRef}
+      {...rest}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={theme.textTertiary} />
+      }
+    />
+  );
+}
+
+function MarkRefreshScrollView({ onRefresh, topInset, forwardedRef, children, style, ...rest }: InnerProps) {
+  const theme = useTheme();
+  const reduceMotion = useReduceMotion();
+  const scrollRef = useAnimatedRef<Animated.ScrollView>();
+  useImperativeHandle(forwardedRef, () => scrollRef.current as unknown as ScrollView);
+
+  // The scroll position and how far past the top it's been pulled, kept on the
+  // UI thread so the mark can follow the finger frame for frame.
+  const offsetY = useSharedValue(0);
+  const pull = useSharedValue(0);
+  // 1 while a refresh is running, tweened so the fill fades in.
+  const active = useSharedValue(0);
+  // The breathing of the filled mark, 0..1 back and forth.
+  const breath = useSharedValue(0);
+  const dragging = useSharedValue(false);
+  const armed = useSharedValue(false);
+  const running = useSharedValue(false);
+
+  // Holding the gap open is done with a content inset, which is a React prop,
+  // so that part of the state lives on the JS side too.
+  const [holding, setHolding] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const tick = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  }, []);
+
+  const start = useCallback(async () => {
+    if (running.value) return;
+    running.value = true;
+    setHolding(true);
+    active.value = withTiming(1, { duration: 260, easing: Easing.out(Easing.quad) });
+    if (!reduceMotion) {
+      breath.value = withRepeat(
+        withTiming(1, { duration: 900, easing: Easing.inOut(Easing.sin) }),
+        -1,
+        true,
+      );
+    }
+    try {
+      await Promise.all([onRefresh(), new Promise((resolve) => setTimeout(resolve, MIN_SHOWN_MS))]);
+    } finally {
+      if (mounted.current) {
+        // The filled mark rides up with the content rather than fading out. If
+        // the shelf was scrolled away in the meantime there's nothing to move.
+        const atTop = offsetY.value < 0;
+        if (atTop) scrollRef.current?.scrollTo({ y: 0, animated: true });
+        // Only drop the inset once that scroll has landed: changing the inset
+        // moves the rest position without animating the content to it.
+        setTimeout(() => {
+          if (!mounted.current) return;
+          cancelAnimation(breath);
+          breath.value = 0;
+          active.value = 0;
+          running.value = false;
+          setHolding(false);
+        }, atTop ? 380 : 0);
+      }
+    }
+  }, [active, breath, offsetY, onRefresh, reduceMotion, running, scrollRef]);
+
+  const onScroll = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      dragging.value = true;
+      armed.value = false;
+    },
+    onScroll: (event) => {
+      offsetY.value = event.contentOffset.y;
+      pull.value = Math.max(0, -event.contentOffset.y);
+      // A tick as the pull crosses the trigger point, only under the finger
+      // (not on the way back) and only when it would do something.
+      if (dragging.value && !running.value) {
+        const past = pull.value >= THRESHOLD;
+        if (past && !armed.value) {
+          armed.value = true;
+          runOnJS(tick)();
+        } else if (!past && armed.value) {
+          armed.value = false;
+        }
+      }
+    },
+    onEndDrag: () => {
+      dragging.value = false;
+      if (pull.value >= THRESHOLD && !running.value) runOnJS(start)();
+    },
+  });
+
+  const wrapperStyle = useAnimatedStyle(() => {
+    // The mark rises out from under the top edge with the content, then lags
+    // behind it once the gap is wider than it needs, so it never runs away.
+    const enter = Math.min(pull.value, HOLD) - HOLD;
+    const stretch = Math.max(pull.value - HOLD, 0) * 0.5;
+    return { transform: [{ translateY: enter + stretch }] };
+  });
+
+  const markStyle = useAnimatedStyle(() => {
+    const reveal = Math.min(pull.value / THRESHOLD, 1);
+    const grow = interpolate(reveal, [0, 1], [0.72, 1]);
+    const breathe = 1 + breath.value * 0.05 * active.value;
+    return {
+      opacity: Math.max(interpolate(pull.value, [0, 24], [0, 1]), active.value),
+      transform: [{ scale: grow * breathe }],
+    };
+  });
+
+  const fillStyle = useAnimatedStyle(() => ({
+    opacity: active.value * (1 - breath.value * 0.18),
+  }));
+
+  // The outline hands over to the fill: once the mark is solid the stroke goes.
+  const strokeStyle = useAnimatedStyle(() => ({
+    opacity: 1 - active.value,
+  }));
+
+  return (
+    <View style={styles.host}>
+      <Animated.ScrollView
+        ref={scrollRef}
+        {...rest}
+        style={[styles.host, style]}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        automaticallyAdjustContentInsets={false}
+        contentInset={{ top: holding ? HOLD : 0 }}
+      >
+        {children}
+      </Animated.ScrollView>
+
+      {/* The gap clips at the safe-area line, so the mark rises out from under it. */}
+      <View pointerEvents="none" style={[styles.gap, { top: topInset }]}>
+        <Animated.View style={[styles.slide, wrapperStyle]}>
+          <Animated.View style={[styles.mark, markStyle]}>
+            {/* The fill sits under the outline, fading up as the outline fades out once a refresh starts. */}
+            <Animated.View style={[StyleSheet.absoluteFill, fillStyle]}>
+              <Svg width={MARK_SIZE} height={MARK_SIZE} viewBox={`0 0 ${MARK_BOX} ${MARK_BOX}`}>
+                {MARK_PATHS.map((piece) => (
+                  <Path key={piece.name} d={piece.d} fill={theme.tint} />
+                ))}
+              </Svg>
+            </Animated.View>
+            <Animated.View style={[StyleSheet.absoluteFill, strokeStyle]}>
+              <Svg width={MARK_SIZE} height={MARK_SIZE} viewBox={`0 0 ${MARK_BOX} ${MARK_BOX}`}>
+                {MARK_PATHS.map((piece) => (
+                  <TracedPath key={piece.name} piece={piece} pull={pull} active={active} color={theme.tint} />
+                ))}
+              </Svg>
+            </Animated.View>
+          </Animated.View>
+        </Animated.View>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * One piece of the outline, drawn from its start in proportion to the pull.
+ * A dash as long as the piece, offset by what's left undrawn, is the classic
+ * line-drawing trick and stays on the UI thread. The piece clips its own
+ * stroke so only the inner half shows.
+ */
+function TracedPath({
+  piece,
+  pull,
+  active,
+  color,
+}: {
+  piece: MarkPiece;
+  pull: SharedValue<number>;
+  active: SharedValue<number>;
+  color: string;
+}) {
+  const animatedProps = useAnimatedProps(() => {
+    const traced = Math.max(Math.min(pull.value / THRESHOLD, 1), active.value);
+    return { strokeDashoffset: piece.length * (1 - traced) };
+  });
+  const clipId = `mark-${piece.name}`;
+  return (
+    <>
+      <Defs>
+        <ClipPath id={clipId}>
+          <Path d={piece.d} />
+        </ClipPath>
+      </Defs>
+      <AnimatedPath
+        d={piece.d}
+        fill="none"
+        stroke={color}
+        strokeWidth={STROKE * 2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray={[piece.length, piece.length]}
+        clipPath={`url(#${clipId})`}
+        animatedProps={animatedProps}
+      />
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  host: { flex: 1 },
+  // Tall enough that only its top edge ever clips: the mark keeps drifting
+  // down with a long pull and must never be cut off at the bottom.
+  gap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: HOLD * 6,
+    overflow: 'hidden',
+  },
+  // At rest the mark sits centred in the held-open HOLD, measured from the top.
+  slide: { alignItems: 'center', paddingTop: (HOLD - MARK_SIZE) / 2 },
+  mark: { width: MARK_SIZE, height: MARK_SIZE },
+});

@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import { Text, useWindowDimensions, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -13,6 +13,8 @@ import { getProgress } from '@/state/db';
 import { EmptyState, Icon, ProgressRing, SectionHeader } from '@/ui/Bits';
 import { BookCover } from '@/ui/BookCover';
 import { GlassSurface } from '@/ui/Glass';
+import { HalftoneShadow } from '@/ui/Halftone';
+import { LogoRefreshScrollView } from '@/ui/LogoRefresh';
 import { Press } from '@/ui/Press';
 import { Shelf, ShelfSkeleton } from '@/ui/Shelf';
 import { contentColumn, radius, tabBarInset, type as type_, useTheme } from '@/ui/theme';
@@ -23,7 +25,6 @@ export default function ReadingNow() {
   const router = useRouter();
   const { session } = useAuth();
   const flushProgress = useProgressSync();
-  const [refreshing, setRefreshing] = useState(false);
 
   const continueReading = useContinueReading();
   const recent = useShelf('recent', { sortBy: 'DateCreated', sortOrder: 'Descending', limit: 20 });
@@ -35,7 +36,6 @@ export default function ReadingNow() {
   const restOfContinue = useMemo(() => continueReading.data?.slice(1) ?? [], [continueReading.data]);
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
     await flushProgress();
     await Promise.all([
       continueReading.refetch(),
@@ -44,7 +44,6 @@ export default function ReadingNow() {
       finished.refetch(),
       local.refetch(),
     ]);
-    setRefreshing(false);
   }, [continueReading, favorites, finished, flushProgress, local, recent]);
 
   if (!session) return null;
@@ -59,16 +58,15 @@ export default function ReadingNow() {
     !local.data?.length;
 
   return (
-    <ScrollView
+    <LogoRefreshScrollView
       style={{ flex: 1, backgroundColor: theme.bg }}
       contentContainerStyle={[
         contentColumn,
         { paddingTop: insets.top + 8 + tabBarInset, paddingBottom: insets.bottom + 120 },
       ]}
       contentInsetAdjustmentBehavior="never"
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.textTertiary} />
-      }
+      onRefresh={onRefresh}
+      topInset={insets.top}
     >
       <View
         style={{
@@ -143,7 +141,7 @@ export default function ReadingNow() {
       />
       <ShelfSection title="Readlist" items={favorites.data} loading={favorites.isPending} />
       <ShelfSection title="Finished" items={finished.data} loading={finished.isPending} />
-    </ScrollView>
+    </LogoRefreshScrollView>
   );
 }
 
@@ -183,22 +181,32 @@ function HeroCard({ item }: { item: BaseItem }) {
   const progress = getProgress(item.Id);
   const percent = progress?.percent ?? 0;
   const coverWidth = Math.min(140, width * 0.34);
+  const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
   const backdrop = session ? imageUrl(session, item, { width: 60, quality: 60 }) : undefined;
   const format = formatOf(item);
 
   if (!session) return null;
 
   return (
-    <Animated.View entering={FadeIn.duration(420)} style={{ paddingHorizontal: 20 }}>
+    <Animated.View entering={FadeIn.duration(420)} style={{ marginHorizontal: 20 }}>
+      {cardSize.width > 0 && cardSize.height > 0 ? (
+        <HalftoneShadow
+          width={cardSize.width}
+          height={cardSize.height}
+          radius={radius.xl}
+          // Tinted, not black: the dots read as a printed accent tone rather
+          // than a cast shadow, so the card stays lit against a dark page too.
+          color={theme.tint}
+          opacity={theme.scheme === 'dark' ? 0.34 : 0.28}
+        />
+      ) : null}
       <View
-        style={{
-          borderRadius: radius.xl,
-          overflow: 'hidden',
-          shadowColor: theme.shadow,
-          shadowOpacity: theme.scheme === 'dark' ? 0.6 : 0.16,
-          shadowRadius: 26,
-          shadowOffset: { width: 0, height: 12 },
+        onLayout={({ nativeEvent: { layout } }) => {
+          setCardSize((current) => current.width === layout.width && current.height === layout.height
+            ? current
+            : { width: layout.width, height: layout.height });
         }}
+        style={{ borderRadius: radius.xl, overflow: 'hidden' }}
       >
         {backdrop ? (
           <Image
@@ -214,7 +222,7 @@ function HeroCard({ item }: { item: BaseItem }) {
             position: 'absolute',
             inset: 0,
             backgroundColor:
-              theme.scheme === 'dark' ? 'rgba(10,9,12,0.62)' : 'rgba(247,243,236,0.58)',
+              theme.scheme === 'dark' ? 'rgba(44,44,44,0.62)' : 'rgba(247,243,236,0.58)',
           }}
         />
 
@@ -224,7 +232,7 @@ function HeroCard({ item }: { item: BaseItem }) {
               onPress={() => router.push({ pathname: '/book/[id]', params: { id: item.Id } })}
               scaleTo={0.96}
             >
-              <BookCover item={item} session={session} width={coverWidth} elevation="high" radius={7} />
+              <BookCover item={item} session={session} width={coverWidth} elevation="none" radius={7} />
             </Press>
 
             <View style={{ flex: 1, justifyContent: 'space-between', gap: 12 }}>

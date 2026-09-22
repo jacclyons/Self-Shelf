@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -30,8 +31,18 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * The display serif. The `expo-font` plugin in app.json embeds it natively so
+ * it's there from the first frame; this call is what loads it on web, and on
+ * native it resolves at once. `serif` in `ui/theme.ts` names it.
+ */
+const fonts = { Ovo: require('../../assets/fonts/Ovo.ttf') };
+
 function RootNavigator() {
   const { session, restoring } = useAuth();
+  // A failed load still resolves, so a broken asset falls back to the system
+  // serif rather than holding the splash forever.
+  const [fontsReady] = useFonts(fonts);
   const segments = useSegments();
   const router = useRouter();
   const theme = useTheme();
@@ -50,7 +61,7 @@ function RootNavigator() {
   }, [chromeScheme, lightOnly, choice]);
 
   useEffect(() => {
-    if (restoring) return;
+    if (restoring || !fontsReady) return;
     SplashScreen.hideAsync();
 
     const onWelcome = segments[0] === 'welcome';
@@ -68,7 +79,7 @@ function RootNavigator() {
       // signed in, and it closes itself rather than being bounced mid-animation.
       router.replace('/');
     }
-  }, [restoring, session, segments, router]);
+  }, [restoring, session, segments, router, fontsReady]);
 
   return (
     <>
