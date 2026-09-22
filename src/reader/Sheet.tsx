@@ -51,6 +51,18 @@ interface SheetProps {
   fg?: string;
 }
 
+/**
+ * A sheet is a phone-shaped thing. In a wide browser window it stays that
+ * shape, centred, rather than stretching across the whole screen; anything
+ * laying out a grid inside one should measure against this, not the window.
+ */
+const MAX_SHEET_WIDTH = 600;
+
+export function useSheetWidth(): number {
+  const { width } = useWindowDimensions();
+  return Platform.OS === 'web' ? Math.min(width - 20, MAX_SHEET_WIDTH) : width - 20;
+}
+
 /** A glass bottom sheet that floats above the page, Apple Books style. */
 export function Sheet({
   visible,
@@ -65,7 +77,8 @@ export function Sheet({
 }: SheetProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const sheetWidth = useSheetWidth();
   const isDark = dark ?? theme.scheme === 'dark';
   // Every colour follows `isDark`, never the app palette: a reader sheet over
   // a light page while the app is in dark mode used to get near-white text.
@@ -153,7 +166,10 @@ export function Sheet({
           // Content that grows or shrinks (a tab switch, Customize opening)
           // pushes the top edge up or down; this eases it instead of snapping.
           layout={LinearTransition.duration(260).easing(SHEET_IN)}
-          style={[{ position: 'absolute', left: 10, right: 10 }, frameStyle]}
+          style={[
+            { position: 'absolute', left: (windowWidth - sheetWidth) / 2, width: sheetWidth },
+            frameStyle,
+          ]}
         >
           <GlassSurface
             radius={radius.xl}

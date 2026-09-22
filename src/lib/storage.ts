@@ -52,7 +52,7 @@ function migrateLegacyLayout() {
 }
 
 /** Bump when reader.html or a vendored library changes so devices re-copy. */
-const ENGINE_VERSION = 10;
+const ENGINE_VERSION = 11;
 const ENGINE_VERSION_KEY = 'engine.version';
 
 const ENGINE_FILES: { name: string; module: number }[] = [

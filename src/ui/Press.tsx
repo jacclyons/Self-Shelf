@@ -13,7 +13,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 /** The accessibility props matter where the content says nothing, e.g. a colour swatch. */
 interface PressProps
-  extends Pick<PressableProps, 'role' | 'aria-label' | 'aria-checked'> {
+  extends Pick<PressableProps, 'role' | 'aria-label' | 'aria-checked' | 'aria-selected' | 'aria-expanded'> {
   children: ReactNode;
   onPress?: () => void;
   onLongPress?: () => void;

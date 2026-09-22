@@ -163,7 +163,17 @@ export default function Library() {
             {total ? `${total} book${total === 1 ? '' : 's'}` : ' '}
           </Text>
         </View>
-        <LayoutToggle layout={layout} onChange={setLayout} />
+        {/*
+          The sort control sits in the header on web, where there is no tab
+          bar along the bottom for a floating button to line up with. The
+          menu drops down over whatever follows, so the row sits above it.
+        */}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, zIndex: 20 }}>
+          {Platform.OS === 'web' ? (
+            <SortButton sort={sort} onChange={setSort} placement="header" />
+          ) : null}
+          <LayoutToggle layout={layout} onChange={setLayout} />
+        </View>
       </View>
 
       {libraries.data && libraries.data.length > 1 ? (
@@ -325,22 +335,18 @@ export default function Library() {
       )}
 
       {/*
-        Floating glass sort control — the one persistent chrome element. On iOS
-        it's the same size as the tab bar's search circle and sits just left of
-        it, so the bottom edge reads as one row of round buttons. The offsets
-        were measured against the iOS 26 bar: the screen's view ends above the
-        bar, so the button hangs below its bottom edge to line up.
+        Floating glass sort control — the one persistent chrome element. It's
+        the same size as the tab bar's search circle and sits just left of it,
+        so the bottom edge reads as one row of round buttons. The offsets were
+        measured against the iOS 26 bar: the screen's view ends above the bar,
+        so the button hangs below its bottom edge to line up. On web it lives
+        in the header instead.
       */}
-      <View
-        style={{
-          position: 'absolute',
-          // The browser's tab bar is along the top, so there's no search circle to sit beside.
-          right: Platform.OS === 'web' ? 18 : 90,
-          bottom: Platform.OS === 'web' ? insets.bottom + 6 : insets.bottom - 61,
-        }}
-      >
-        <SortButton sort={sort} onChange={setSort} />
-      </View>
+      {Platform.OS !== 'web' ? (
+        <View style={{ position: 'absolute', right: 90, bottom: insets.bottom - 61 }}>
+          <SortButton sort={sort} onChange={setSort} placement="floating" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -394,49 +400,121 @@ function LayoutToggle({ layout, onChange }: { layout: Layout; onChange: (layout:
 }
 
 /** Diameter of the iOS 26 tab bar's search circle, which the sort button matches. */
-const SORT_BUTTON_SIZE = Platform.OS === 'web' ? 50 : 62;
+const SORT_BUTTON_SIZE = 62;
 
-function SortButton({ sort, onChange }: { sort: SortKey; onChange: (key: SortKey) => void }) {
+/**
+ * Floating, the button is a round glass circle with its menu stacked above
+ * it. In the header it's a pill showing the current order, the same height as
+ * the layout toggle beside it, and the menu drops down underneath.
+ */
+function SortButton({
+  sort,
+  onChange,
+  placement,
+}: {
+  sort: SortKey;
+  onChange: (key: SortKey) => void;
+  placement: 'floating' | 'header';
+}) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
+  const inHeader = placement === 'header';
+  const current = SORTS.find((s) => s.key === sort)!;
+
+  const menu = open ? (
+    <GlassSurface
+      radius={radius.lg}
+      style={[
+        { borderRadius: radius.lg, overflow: 'hidden', minWidth: 190 },
+        inHeader
+          ? {
+              position: 'absolute',
+              top: 56,
+              right: 0,
+              borderWidth: 1,
+              borderColor: theme.separator,
+              shadowColor: theme.shadow,
+              shadowOpacity: theme.scheme === 'dark' ? 0.4 : 0.12,
+              shadowRadius: 18,
+              shadowOffset: { width: 0, height: 8 },
+            }
+          : null,
+      ]}
+    >
+      {SORTS.map((option, index) => (
+        <Press
+          key={option.key}
+          haptic="selection"
+          scaleTo={0.98}
+          onPress={() => {
+            onChange(option.key);
+            setOpen(false);
+          }}
+        >
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 16,
+              paddingVertical: 13,
+              borderTopWidth: index === 0 ? 0 : 0.5,
+              borderTopColor: theme.separator,
+            }}
+          >
+            <Text style={[type_.subhead, { color: theme.text }]}>{option.label}</Text>
+            {sort === option.key ? (
+              <Icon name="checkmark" size={14} color={theme.tint} />
+            ) : null}
+          </View>
+        </Press>
+      ))}
+    </GlassSurface>
+  ) : null;
+
+  if (inHeader) {
+    return (
+      <View style={{ alignItems: 'flex-end', zIndex: 20 }}>
+        <Press
+          onPress={() => setOpen((v) => !v)}
+          haptic="light"
+          scaleTo={0.94}
+          aria-label={`Sort by ${current.label}`}
+          aria-expanded={open}
+        >
+          <GlassSurface
+            interactive
+            radius={radius.pill}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 7,
+              height: 48,
+              paddingLeft: 16,
+              paddingRight: 18,
+              marginTop: 2,
+              borderRadius: radius.pill,
+            }}
+          >
+            <Icon
+              name={open ? 'xmark' : 'arrow.up.arrow.down'}
+              size={16}
+              weight="medium"
+              color={theme.textSecondary}
+            />
+            <Text style={[type_.subhead, { fontWeight: '600', color: theme.text }]}>
+              {current.label}
+            </Text>
+          </GlassSurface>
+        </Press>
+        {menu}
+      </View>
+    );
+  }
 
   return (
     <View style={{ alignItems: 'flex-end', gap: 8 }}>
-      {open ? (
-        <GlassSurface
-          radius={radius.lg}
-          style={{ borderRadius: radius.lg, overflow: 'hidden', minWidth: 190 }}
-        >
-          {SORTS.map((option, index) => (
-            <Press
-              key={option.key}
-              haptic="selection"
-              scaleTo={0.98}
-              onPress={() => {
-                onChange(option.key);
-                setOpen(false);
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingHorizontal: 16,
-                  paddingVertical: 13,
-                  borderTopWidth: index === 0 ? 0 : 0.5,
-                  borderTopColor: theme.separator,
-                }}
-              >
-                <Text style={[type_.subhead, { color: theme.text }]}>{option.label}</Text>
-                {sort === option.key ? (
-                  <Icon name="checkmark" size={14} color={theme.tint} />
-                ) : null}
-              </View>
-            </Press>
-          ))}
-        </GlassSurface>
-      ) : null}
+      {menu}
 
       <Press onPress={() => setOpen((v) => !v)} haptic="light" scaleTo={0.9}>
         <GlassSurface
@@ -455,12 +533,7 @@ function SortButton({ sort, onChange }: { sort: SortKey; onChange: (key: SortKey
           }}
         >
           {/* Sized and weighted like the tab bar's own search glyph beside it. */}
-          <Icon
-            name={open ? 'xmark' : 'arrow.up.arrow.down'}
-            size={Platform.OS === 'web' ? 18 : 24}
-            weight="medium"
-            color={theme.text}
-          />
+          <Icon name={open ? 'xmark' : 'arrow.up.arrow.down'} size={24} weight="medium" color={theme.text} />
         </GlassSurface>
       </Press>
     </View>

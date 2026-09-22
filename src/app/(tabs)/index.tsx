@@ -17,7 +17,7 @@ import { HalftoneShadow } from '@/ui/Halftone';
 import { LogoRefreshScrollView } from '@/ui/LogoRefresh';
 import { Press } from '@/ui/Press';
 import { Shelf, ShelfSkeleton } from '@/ui/Shelf';
-import { contentColumn, radius, tabBarInset, type as type_, useTheme } from '@/ui/theme';
+import { contentColumn, radius, serif, tabBarInset, type as type_, useTheme } from '@/ui/theme';
 
 export default function ReadingNow() {
   const theme = useTheme();
@@ -79,14 +79,7 @@ export default function ReadingNow() {
       >
         <View style={{ flex: 1 }}>
           <Text
-            style={{
-              fontFamily: 'Georgia',
-              fontSize: 34,
-              lineHeight: 41,
-              fontWeight: '600',
-              color: theme.text,
-              letterSpacing: -0.4,
-            }}
+            style={[type_.largeTitle, { fontFamily: serif, color: theme.text, letterSpacing: -0.4 }]}
           >
             {greeting()}
           </Text>

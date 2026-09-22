@@ -29,9 +29,42 @@ const badImageCbz = await badZip.generateAsync({ type: 'nodebuffer' });
 const epubZip = new JSZip();
 epubZip.file('mimetype', 'application/epub+zip');
 epubZip.file('META-INF/container.xml', '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
-epubZip.file('book.opf', '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">test</dc:identifier><dc:title>Reader test</dc:title><dc:language>en</dc:language></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine><itemref idref="chapter"/></spine></package>');
-epubZip.file('chapter.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Test</title></head><body><h1>Chapter one</h1><p>A readable first page.</p></body></html>');
-epubZip.file('nav.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml">Chapter one</a></li></ol></nav></body></html>');
+const epubChapters = [1, 2, 3, 4, 5];
+epubZip.file('book.opf', `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">test</dc:identifier><dc:title>Reader test</dc:title><dc:language>en</dc:language></metadata><manifest>${epubChapters.map(n => `<item id="chapter-${n}" href="chapter-${n}.xhtml" media-type="application/xhtml+xml"/>`).join('')}<item id="css" href="publisher.css" media-type="text/css"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/></manifest><spine>${epubChapters.map(n => `<itemref idref="chapter-${n}"/>`).join('')}</spine></package>`);
+epubZip.file('publisher.css', `
+  body { font: 400 16px/1.4 "Times New Roman", serif; }
+  h1 { font: bold 28px/1.2 "Palatino Linotype", serif; }
+  h1 span { font-family: "Trebuchet MS", sans-serif; }
+  h2 { font: italic 600 24px/1.3 Verdana, sans-serif; }
+  blockquote { font: bold 18px/1.5 "Book Antiqua", serif; }
+  blockquote p { font-family: "Courier New", monospace; }
+  strong { font-family: Arial, sans-serif; }
+  em { font-family: "Trebuchet MS", sans-serif; }
+  p.prose { font-family: Verdana, sans-serif; font-size: 17px; }
+  p.shorthand { font: italic 600 19px/1.6 "Trebuchet MS", sans-serif; }
+  body p.important { font-family: "Courier New", monospace !important; font-weight: 700; font-size: 18px; }
+  body p.important-shorthand { font: italic 700 20px/1.3 "Palatino Linotype", serif !important; }
+`);
+// Long chapters and intervening spine items keep the navigation cases out of
+// the continuous manager's initial iframe buffer, so they exercise content hooks.
+for (const n of epubChapters) {
+  epubZip.file(`chapter-${n}.xhtml`, `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter ${n}</title><link rel="stylesheet" type="text/css" href="publisher.css"/></head>
+    <body data-chapter="${n}" style='font-family: "Times New Roman", serif;'>
+      <h1 id="heading">Chapter ${n}: <span id="heading-span">A publisher's title</span></h1>
+      <h2 id="subheading">A <span id="subheading-span" style='font-family: "Courier New", monospace !important;'>nested subtitle</span></h2>
+      <blockquote id="quotation"><p id="quotation-text">A bold quotation with <strong id="quotation-strong">strong words</strong> and <em id="quotation-emphasis">italic emphasis</em>.</p></blockquote>
+      <p id="paragraph" class="prose">The opening paragraph has its own family and <em id="paragraph-emphasis">a change of voice</em>.</p>
+      <p id="shorthand" class="shorthand">A publisher's italic paragraph styled with a font shorthand.</p>
+      <p id="important" class="important">A family declared important in the publisher stylesheet.</p>
+      <p id="important-shorthand" class="important-shorthand">An important stylesheet font shorthand.</p>
+      <p id="inline-family" style="font-family: Arial, sans-serif; font-weight: 600; font-size: 18px;">An inline font family.</p>
+      <p id="inline-shorthand" style="font: italic 700 21px/1.4 Verdana, sans-serif;">An inline font shorthand.</p>
+      <p id="inline-important" style='font-family: "Courier New", monospace !important; font-style: italic; font-weight: 700; font-size: 19px;'>An important inline family.</p>
+      <p id="inline-important-shorthand" style='font: italic 700 22px/1.5 "Times New Roman", serif !important;'>An important inline font shorthand.</p>
+      <p id="passage" class="prose">${'The reader followed the quiet path through the library, pausing at each shelf to discover another story. '.repeat(40)}</p>
+    </body></html>`);
+}
+epubZip.file('nav.xhtml', `<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol>${epubChapters.map(n => `<li><a href="chapter-${n}.xhtml">Chapter ${n}</a></li>`).join('')}</ol></nav></body></html>`);
 const epub = await epubZip.generateAsync({ type: 'nodebuffer' });
 const pdfObjects = [
   '<< /Type /Catalog /Pages 2 0 R >>',
@@ -182,10 +215,10 @@ try {
       terminate() { stats.terminated++; super.terminate(); }
     };
   ` });
-  async function open(file, location = '1', kind = 'comic') {
+  async function open(file, location = '1', kind = 'comic', settings = {}) {
     await call('Page.navigate', { url: `${base}/reader/reader.html` });
     await until(`window.events?.some(event => event.type === 'ready')`);
-    const opts = { kind, url: `${base}/${file}`, location, settings: { flow: 'paged', rtl: false }, theme: {}, managedLoading: true };
+    const opts = { kind, url: `${base}/${file}`, location, settings: { flow: 'paged', rtl: false, ...settings }, theme: {}, managedLoading: true };
     await evaluate(`window.JS.load(${JSON.stringify(opts)})`);
   }
 
@@ -231,10 +264,73 @@ try {
   await until(`document.querySelectorAll('.page')[1].dataset.loaded === '1'`);
   console.log('PASS corrupt image has readable feedback and can be skipped');
 
-  await open('book.epub', null, 'epub');
+  await open('book.epub', null, 'epub', { fontFamily: 'publisher', fontSize: 100, lineHeight: 1.5, margin: 24 });
   assert.equal(await evaluate(`events.some(event => event.type === 'loaded' && event.kind === 'epub')`), true);
   assert.equal(await evaluate(`events.some(event => event.type === 'error')`), false);
   console.log('PASS EPUB opening regression');
+
+  const chapterDocument = chapter => `[...document.querySelectorAll('#epub iframe')].map(frame => frame.contentDocument).find(doc => doc?.body?.dataset.chapter === '${chapter}')`;
+  async function chapterFonts(chapter) {
+    await until(`!!(${chapterDocument(chapter)})`);
+    return evaluate(`(() => {
+      const doc = ${chapterDocument(chapter)};
+      return [...doc.querySelectorAll('body, body *')].map(element => {
+        const style = doc.defaultView.getComputedStyle(element);
+        return { element: element.id || element.localName, family: style.fontFamily, weight: style.fontWeight, style: style.fontStyle, size: style.fontSize };
+      });
+    })()`);
+  }
+  async function setFont(fontFamily) {
+    await evaluate(`window.JS.setSettings(${JSON.stringify({ fontFamily })})`);
+    // Allow style changes and the reader's resize to finish before sampling.
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+  }
+  async function goToChapter(chapter) {
+    await evaluate(`window.JS.goTo('chapter-${chapter}.xhtml')`);
+    await until(`events.filter(event => event.type === 'location').at(-1)?.chapter === 'Chapter ${chapter}' && !!(${chapterDocument(chapter)})`);
+  }
+
+  const publisherFonts = await chapterFonts(1);
+  const publisherByElement = Object.fromEntries(publisherFonts.map(font => [font.element, font]));
+  // Verify the stylesheet and semantic emphasis really loaded before using
+  // their computed values as the preservation/restoration baseline.
+  assert.equal(publisherFonts.length, 19, 'the baseline includes the body and every text descendant');
+  assert.deepEqual(publisherByElement.heading, { element: 'heading', family: '"Palatino Linotype", serif', weight: '700', style: 'normal', size: '28px' });
+  assert.equal(publisherByElement['heading-span'].family, '"Trebuchet MS", sans-serif');
+  assert.equal(publisherByElement['subheading-span'].style, 'italic');
+  assert.equal(publisherByElement['quotation-text'].weight, '700');
+  assert.equal(publisherByElement['quotation-emphasis'].style, 'italic');
+  assert.equal(publisherByElement['paragraph-emphasis'].style, 'italic');
+  assert.deepEqual(publisherByElement.shorthand, { element: 'shorthand', family: '"Trebuchet MS", sans-serif', weight: '600', style: 'italic', size: '19px' });
+  assert.equal(publisherByElement.important.family, '"Courier New", monospace');
+  assert.equal(publisherByElement['inline-important-shorthand'].size, '22px');
+
+  async function assertChapterFont(chapter, family, message) {
+    const expected = family === 'publisher' ? publisherFonts : publisherFonts.map(font => ({ ...font, family }));
+    assert.deepEqual(await chapterFonts(chapter), expected, message);
+  }
+  const firstFont = 'Georgia, serif';
+  const secondFont = 'Seravek, -apple-system, sans-serif';
+  for (const family of [firstFont, secondFont, 'publisher', firstFont]) {
+    await setFont(family);
+    await assertChapterFont(1, family, `${family}: body and descendants change family without losing publisher weight, style or size`);
+  }
+  console.log('PASS EPUB fonts: nested headings, bold/italic text, CSS/inline families and shorthands, !important, two fonts and Publisher restoration');
+
+  assert.equal(await evaluate(`!!(${chapterDocument(3)})`), false, 'the next font test chapter has not been rendered yet');
+  await goToChapter(3);
+  await assertChapterFont(3, firstFont, 'a newly rendered chapter honors the active font and publisher typography');
+  await setFont(secondFont);
+  await assertChapterFont(3, secondFont, 'a new chapter can switch to the second custom font');
+  await setFont('publisher');
+  await assertChapterFont(3, 'publisher', 'Publisher restores a chapter first rendered with a custom font');
+  assert.equal(await evaluate(`!!(${chapterDocument(5)})`), false, 'the post-reset chapter has not been rendered yet');
+  await goToChapter(5);
+  await assertChapterFont(5, 'publisher', 'a newly rendered chapter after reset uses publisher fonts, not a stale override');
+  await goToChapter(1);
+  await assertChapterFont(1, 'publisher', 'revisiting the original chapter after reset keeps publisher fonts');
+  assert.equal(await evaluate(`events.some(event => event.type === 'error')`), false);
+  console.log('PASS EPUB fonts: active font in new chapters, Publisher reset, new chapters after reset and revisits');
 
   await open('book.pdf', '1', 'pdf');
   assert.equal(await evaluate(`events.some(event => event.type === 'loaded' && event.kind === 'pdf')`), true);

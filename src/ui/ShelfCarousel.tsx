@@ -19,9 +19,9 @@
 
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -111,15 +111,19 @@ export function ShelfCarousel({ items, session, onNearEnd }: ShelfCarouselProps)
 
   const position = useSharedValue(0);
   const dragStart = useSharedValue(0);
+  // Where the shelf is heading, as opposed to where it is mid-spring, so a
+  // run of key presses steps one book each rather than re-rounding the turn.
+  const target = useSharedValue(0);
   const [center, setCenter] = useState(0);
 
   // A filter change can leave the centre past the end of the new list.
   useEffect(() => {
     if (center > last) {
       position.value = last;
+      target.value = last;
       setCenter(last);
     }
-  }, [center, last, position]);
+  }, [center, last, position, target]);
 
   useEffect(() => {
     if (onNearEnd && items.length && center >= items.length - 4) onNearEnd();
@@ -142,9 +146,53 @@ export function ShelfCarousel({ items, session, onNearEnd }: ShelfCarouselProps)
 
   const goTo = useCallback(
     (index: number) => {
-      position.value = withSpring(clamp(index, 0, last), SNAP);
+      target.value = clamp(index, 0, last);
+      position.value = withSpring(target.value, SNAP);
     },
-    [last, position],
+    [last, position, target],
+  );
+
+  const open = useCallback(
+    (item: BaseItem) => router.push({ pathname: '/book/[id]', params: { id: item.Id } }),
+    [router],
+  );
+
+  // A keyboard walks the shelf too: arrows step, Home and End jump, Enter
+  // opens the book that's facing you. Only while this screen is the one on
+  // show, and never while something is being typed.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'web') return;
+      const onKey = (event: KeyboardEvent) => {
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+        const el = event.target as HTMLElement | null;
+        if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+        switch (event.key) {
+          case 'ArrowLeft':
+            goTo(target.value - 1);
+            break;
+          case 'ArrowRight':
+            goTo(target.value + 1);
+            break;
+          case 'Home':
+            goTo(0);
+            break;
+          case 'End':
+            goTo(last);
+            break;
+          case 'Enter': {
+            const item = items[Math.round(target.value)];
+            if (item) open(item);
+            break;
+          }
+          default:
+            return;
+        }
+        event.preventDefault();
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [goTo, items, last, open, target]),
   );
 
   // Dragging a cover's width turns exactly one book, so the centred cover
@@ -165,9 +213,10 @@ export function ShelfCarousel({ items, session, onNearEnd }: ShelfCarouselProps)
         })
         .onEnd((event) => {
           const projected = position.value - (event.velocityX / coverWidth) * FLING;
-          position.value = withSpring(clamp(Math.round(projected), 0, last), SNAP);
+          target.value = clamp(Math.round(projected), 0, last);
+          position.value = withSpring(target.value, SNAP);
         }),
-    [coverWidth, dragStart, last, position],
+    [coverWidth, dragStart, last, position, target],
   );
 
   if (!items.length) return null;
@@ -232,14 +281,7 @@ export function ShelfCarousel({ items, session, onNearEnd }: ShelfCarouselProps)
                     haptic={d === 0 ? 'medium' : 'selection'}
                     scaleTo={1}
                     aria-label={item.Name ?? 'Book'}
-                    onPress={() =>
-                      d === 0
-                        ? router.push({
-                            pathname: '/book/[id]',
-                            params: { id: item.Id },
-                          })
-                        : goTo(center + d)
-                    }
+                    onPress={() => (d === 0 ? open(item) : goTo(center + d))}
                     style={{
                       position: 'absolute',
                       top: 0,

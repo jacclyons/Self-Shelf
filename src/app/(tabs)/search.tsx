@@ -20,7 +20,7 @@ import { BookCover } from '@/ui/BookCover';
 import { GlassSurface } from '@/ui/Glass';
 import { Press } from '@/ui/Press';
 import { getProgress } from '@/state/db';
-import { contentColumn, radius, tabBarInset, type as type_, useTheme } from '@/ui/theme';
+import { contentColumn, radius, serif, tabBarInset, type as type_, useTheme } from '@/ui/theme';
 
 export default function Search() {
   const theme = useTheme();
@@ -77,7 +77,10 @@ export default function Search() {
         ListHeaderComponent={
           <View style={{ paddingHorizontal: 20, marginBottom: 18 }}>
             <Text
-              style={[type_.largeTitle, { color: theme.text, letterSpacing: -0.9, marginBottom: 16 }]}
+              style={[
+                type_.largeTitle,
+                { fontFamily: serif, color: theme.text, letterSpacing: -0.4, marginBottom: 16 },
+              ]}
             >
               Search
             </Text>

@@ -550,7 +550,6 @@
       'html, body': { background: t.bg + ' !important' },
       body: {
         color: t.fg + ' !important',
-        'font-family': s.fontFamily === 'publisher' ? null : s.fontFamily + ' !important',
         'font-weight': t.bold ? '600' : null,
         'line-height': s.lineHeight + ' !important',
         'text-align': s.justify ? 'justify' : 'start',
@@ -562,11 +561,58 @@
         'line-height': s.lineHeight + ' !important',
         'font-weight': t.bold ? '600' : null,
       },
-      'h1, h2, h3, h4, h5, h6': { color: t.fg + ' !important' },
+      'h1, h2, h3, h4, h5, h6': {
+        color: t.fg + ' !important',
+        'font-weight': '700 !important',
+        'margin-bottom': '0.35em !important',
+      },
       a: { color: t.accent + ' !important', 'text-decoration': 'none' },
       img: { 'max-width': '100% !important', height: 'auto !important' },
       '::selection': { background: 'color-mix(in srgb, ' + t.accent + ' 32%, transparent)' },
     };
+  }
+
+  // Weak keys let unloaded chapter documents and their saved styles be collected.
+  var epubFonts = new WeakMap();
+
+  /**
+   * A body font only reaches text without its own publisher declaration. Apply
+   * the chosen family directly so headings, nested spans and even important
+   * inline fonts follow it, without changing size, weight or italics. Save only
+   * the family so Publisher can restore it without undoing epub.js layout styles.
+   */
+  function applyEpubFont(contents) {
+    var doc = contents.document;
+    var font = state.settings.fontFamily;
+    if (!font || font === 'publisher') font = null;
+    var saved = epubFonts.get(doc);
+    if (saved && saved.font === font) return;
+    if (!font) {
+      if (saved) {
+        saved.elements.forEach(function (entry) {
+          if (entry.family) entry.el.style.setProperty('font-family', entry.family, entry.priority);
+          else entry.el.style.removeProperty('font-family');
+        });
+        epubFonts.delete(doc);
+      }
+      return;
+    }
+    if (!saved) {
+      saved = { font: null, elements: [] };
+      doc.querySelectorAll('body, body *').forEach(function (el) {
+        if (!el.style) return;
+        saved.elements.push({
+          el: el,
+          family: el.style.getPropertyValue('font-family'),
+          priority: el.style.getPropertyPriority('font-family'),
+        });
+      });
+      epubFonts.set(doc, saved);
+    }
+    saved.elements.forEach(function (entry) {
+      entry.el.style.setProperty('font-family', font, 'important');
+    });
+    saved.font = font;
   }
 
   function applyEpubStyle() {
@@ -575,9 +621,7 @@
     r.themes.register('self-shelf', epubThemeRules());
     r.themes.select('self-shelf');
     r.themes.fontSize(state.settings.fontSize + '%');
-    if (state.settings.fontFamily && state.settings.fontFamily !== 'publisher') {
-      r.themes.font(state.settings.fontFamily);
-    }
+    r.getContents().forEach(applyEpubFont);
   }
 
   /* Marks are SVG rects laid over the chapter. `multiply` tints the paper
@@ -650,6 +694,7 @@
 
   function bindContents(contents) {
     var doc = contents.document;
+    applyEpubFont(contents);
     attachTaps(doc, { onTurn: turn });
     bindKeys(doc);
     // Long-press selection needs text selection enabled inside the frame.

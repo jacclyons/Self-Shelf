@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Text, useWindowDimensions, View } from 'react-native';
+import { Text, View } from 'react-native';
 import Animated, {
   FadeInDown,
   FadeOutUp,
@@ -22,7 +22,7 @@ import {
 } from '@/state/reader';
 
 import { Segmented } from './Segmented';
-import { Sheet } from './Sheet';
+import { Sheet, useSheetWidth } from './Sheet';
 
 interface AppearanceSheetProps {
   visible: boolean;
@@ -46,7 +46,7 @@ export function AppearanceSheet({
   theme,
   kind,
 }: AppearanceSheetProps) {
-  const { width } = useWindowDimensions();
+  const width = useSheetWidth();
   const [customizing, setCustomizing] = useState(false);
 
   const muted = theme.dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
@@ -55,7 +55,7 @@ export function AppearanceSheet({
 
   const sheetPadding = 20;
   const gridGap = 10;
-  const tileWidth = (width - 20 - sheetPadding * 2 - gridGap * 2) / 3;
+  const tileWidth = (width - sheetPadding * 2 - gridGap * 2) / 3;
 
   return (
     <Sheet
