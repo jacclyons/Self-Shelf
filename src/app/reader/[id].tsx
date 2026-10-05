@@ -13,7 +13,7 @@ import {
 import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut, FadeOutDown, FadeOutUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useBook, useProgressSync } from '@/api/hooks';
+import { useAnnotations, useBook, useProgressSync } from '@/api/hooks';
 import { engineKindFor, formatOf, type BaseItem } from '@/api/types';
 import { isLocalId, localFileFor } from '@/lib/localBooks';
 import { useDismissTo } from '@/lib/navigation';
@@ -21,19 +21,7 @@ import { promptForText } from '@/lib/prompt';
 import { bookForReading, ensureReaderEngine } from '@/lib/storage';
 import { useAppearance } from '@/state/appearance';
 import { useAuth } from '@/state/auth';
-import {
-  addBookmark,
-  enrichLocalBook,
-  addHighlight,
-  getProgress,
-  listBookmarks,
-  listHighlights,
-  removeBookmark,
-  removeHighlight,
-  saveProgress,
-  type BookmarkRow,
-  type HighlightRow,
-} from '@/state/db';
+import { enrichLocalBook, getProgress, saveProgress } from '@/state/db';
 import {
   cacheLocations,
   cachedLocations,
@@ -110,8 +98,8 @@ function BookReader({ id }: { id: string }) {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [showContents, setShowContents] = useState(false);
   const [showAppearance, setShowAppearance] = useState(false);
-  const [bookmarks, setBookmarks] = useState<BookmarkRow[]>([]);
-  const [highlights, setHighlights] = useState<HighlightRow[]>([]);
+  const { bookmarks, highlights, addBookmark, removeBookmark, addHighlight, removeHighlight } =
+    useAnnotations(id);
   const lastSelection = useRef<{ text: string; location: string } | null>(null);
 
   /* ------------------------------- search --------------------------------- */
@@ -249,11 +237,30 @@ function BookReader({ id }: { id: string }) {
     };
   }, [item, attempt, fail]);
 
+  /* ------------------------------ highlights ------------------------------ */
+
+  // What the engine has drawn, by highlight id. Highlights can arrive or go
+  // from another device while the book is open, so the page is brought in
+  // line with the list rather than drawn once on load. A fresh engine (a
+  // retry) starts with nothing drawn.
+  const drawn = useRef(new Map<string, string>());
   useEffect(() => {
-    if (!id) return;
-    setBookmarks(listBookmarks(id));
-    setHighlights(listHighlights(id));
-  }, [id]);
+    if (!loaded) {
+      drawn.current.clear();
+      return;
+    }
+    const live = new Set(highlights.map((highlight) => highlight.id));
+    for (const [highlightId, location] of drawn.current) {
+      if (live.has(highlightId)) continue;
+      reader.current?.unhighlight(location);
+      drawn.current.delete(highlightId);
+    }
+    for (const highlight of highlights) {
+      if (drawn.current.has(highlight.id)) continue;
+      reader.current?.highlight(highlight.id, highlight.location, highlight.color);
+      drawn.current.set(highlight.id, highlight.location);
+    }
+  }, [highlights, loaded]);
 
   const close = useCallback(() => {
     stopped.current = true;
@@ -312,12 +319,6 @@ function BookReader({ id }: { id: string }) {
           setChapters(event.chapters ?? []);
           if (id && isLocalId(id) && (event.title || event.author)) {
             enrichLocalBook(id, { title: event.title, author: event.author });
-          }
-          // Re-apply saved highlights once the book is on screen.
-          if (id) {
-            for (const highlight of listHighlights(id)) {
-              reader.current?.highlight(highlight.id, highlight.location, highlight.color);
-            }
           }
           // Show the controls briefly on open so the centre-tap gesture is
           // discoverable, then get out of the way like Books does.
@@ -394,9 +395,8 @@ function BookReader({ id }: { id: string }) {
       if (!id || !selection) return;
 
       const create = (note: string | null) => {
-        const highlightId = Crypto.randomUUID();
         addHighlight({
-          id: highlightId,
+          id: Crypto.randomUUID(),
           item_id: id,
           location: selection.location,
           text: selection.text || text,
@@ -404,9 +404,7 @@ function BookReader({ id }: { id: string }) {
           color: HIGHLIGHT_COLOR,
           percent: latest.current?.percent ?? 0,
         });
-        reader.current?.highlight(highlightId, selection.location, HIGHLIGHT_COLOR);
         reader.current?.clearSelection();
-        setHighlights(listHighlights(id));
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       };
 
@@ -416,7 +414,7 @@ function BookReader({ id }: { id: string }) {
         promptForText('Add note', selection.text.slice(0, 120), create);
       }
     },
-    [attempt, id],
+    [addHighlight, attempt, id],
   );
 
   /* -------------------------------- actions ------------------------------- */
@@ -442,8 +440,7 @@ function BookReader({ id }: { id: string }) {
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
-    setBookmarks(listBookmarks(id));
-  }, [bookmarks, id, position]);
+  }, [addBookmark, bookmarks, id, position, removeBookmark]);
 
   /** Any deliberate action cancels the intro auto-hide. */
   const holdChrome = useCallback(() => {
@@ -683,16 +680,8 @@ function BookReader({ id }: { id: string }) {
         onSearch={runSearch}
         onNavigate={(location) => reader.current?.goTo(location)}
         onNavigateHit={(location) => reader.current?.goTo(location, true)}
-        onDeleteBookmark={(bookmarkId) => {
-          removeBookmark(bookmarkId);
-          if (id) setBookmarks(listBookmarks(id));
-        }}
-        onDeleteHighlight={(highlightId) => {
-          const target = highlights.find((h) => h.id === highlightId);
-          if (target) reader.current?.unhighlight(target.location);
-          removeHighlight(highlightId);
-          if (id) setHighlights(listHighlights(id));
-        }}
+        onDeleteBookmark={removeBookmark}
+        onDeleteHighlight={removeHighlight}
       />
 
       <AppearanceSheet

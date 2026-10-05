@@ -55,6 +55,15 @@ type Layout = 'grid' | 'shelf';
 /** The shelf is the default; a switch to the grid is remembered across launches. */
 const LAYOUT_KEY = 'library.layout.v1';
 
+/**
+ * The 22pt between the chips and the first row of books, split around the
+ * edge where scrolled covers are clipped. Clipping right under the chips
+ * looks cramped, and clipping the full 22pt below them leaves covers cut off
+ * in mid-air, so the edge sits a little under halfway.
+ */
+const HEADER_GAP_ABOVE_CLIP = 10;
+const HEADER_GAP_BELOW_CLIP = 12;
+
 export default function Library() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -148,7 +157,7 @@ export default function Library() {
   };
 
   const header = (
-    <View style={{ marginBottom: 22 }}>
+    <View>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <View>
           <Text
@@ -248,19 +257,38 @@ export default function Library() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <AmbientBackdrop />
+      {/*
+        The header stays put while the books scroll beneath it, in both
+        layouts. It sits outside the list rather than as a sticky list header
+        so it can stay transparent over the backdrop: the grid is clipped at
+        its bottom edge instead of sliding under it. It comes before the list
+        and above it so the web sort menu can drop down over the covers.
+      */}
+      <View
+        style={[
+          contentColumn,
+          {
+            paddingTop: insets.top + 8 + tabBarInset,
+            paddingBottom: HEADER_GAP_ABOVE_CLIP,
+            paddingHorizontal: gutter,
+            zIndex: 20,
+          },
+        ]}
+      >
+        {header}
+      </View>
       {layout === 'shelf' ? (
         <View
           style={[
             contentColumn,
             {
               flex: 1,
-              paddingTop: insets.top + 8 + tabBarInset,
+              paddingTop: HEADER_GAP_BELOW_CLIP,
               paddingBottom: insets.bottom + 100,
               paddingHorizontal: gutter,
             },
           ]}
         >
-          {header}
           {items.length ? (
             // The shelf ignores the side padding so spines can run off screen.
             <View style={{ flex: 1, marginHorizontal: -gutter }}>
@@ -289,7 +317,7 @@ export default function Library() {
           contentContainerStyle={[
             contentColumn,
             {
-              paddingTop: insets.top + 8 + tabBarInset,
+              paddingTop: HEADER_GAP_BELOW_CLIP,
               paddingBottom: insets.bottom + 130,
               paddingHorizontal: gutter,
             },
@@ -299,7 +327,6 @@ export default function Library() {
           onEndReached={loadMore}
           onEndReachedThreshold={1.2}
           removeClippedSubviews
-          ListHeaderComponent={header}
           renderItem={({ item }) => (
             <BookTile item={item} session={session} width={tileWidth} />
           )}

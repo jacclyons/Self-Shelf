@@ -716,7 +716,10 @@
     if (!loc || !loc.start) return;
 
     var cfi = loc.start.cfi;
-    var percent = 0;
+    // epub.js has no percentage until the location map exists. Reporting 0 in
+    // that window would be saved over the real position, and pushed to the
+    // server, if the book closed before the map was built, so keep the last one.
+    var percent = state.lastPercent;
     if (state.locationsReady && state.book.locations && state.book.locations.length()) {
       percent = state.book.locations.percentageFromCfi(cfi) || 0;
     } else if (loc.start.percentage) {
@@ -864,7 +867,23 @@
     applyEpubStyle();
     setMargins();
 
-    await rendition.display(opts.location || undefined);
+    // A position synced from another device is only a percentage (Jellyfin has
+    // nowhere to keep a CFI), and a percentage can only be turned into a place
+    // in the text through the location map, so build that before the first
+    // page rather than after it. Without this the book opened at the start.
+    state.lastPercent = opts.percent || 0;
+    var resumeAt = opts.location || null;
+    var mapped = false;
+    if (!resumeAt && opts.percent > 0) {
+      try {
+        await prepareEpubLocations(book, opts.locations);
+        mapped = true;
+        state.locationsReady = true;
+        resumeAt = book.locations.cfiFromPercentage(opts.percent) || null;
+      } catch (e) { /* opens at the start; the map is tried again below */ }
+    }
+
+    await rendition.display(resumeAt || undefined);
     // The container was padded before the manager existed, so take the size again.
     setMargins();
 
@@ -883,17 +902,22 @@
     // Location generation is the expensive part; reuse the cached map when we have one.
     (async function () {
       try {
-        if (opts.locations) {
-          book.locations.load(opts.locations);
-        } else {
-          await book.locations.generate(1024);
-          post({ type: 'locations', data: book.locations.save() });
-        }
+        if (!mapped) await prepareEpubLocations(book, opts.locations);
         state.locationsReady = true;
         post({ type: 'totalLocations', total: book.locations.length() });
         reportEpubLocation();
       } catch (e) { /* percentages fall back to per-chapter estimates */ }
     })();
+  }
+
+  /* Loads the app's cached location map, or builds one and hands it back to be cached. */
+  async function prepareEpubLocations(book, cached) {
+    if (cached) {
+      book.locations.load(cached);
+    } else {
+      await book.locations.generate(1024);
+      post({ type: 'locations', data: book.locations.save() });
+    }
   }
 
   function setMargins() {

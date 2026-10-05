@@ -1,10 +1,12 @@
 import * as Application from 'expo-application';
+import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 
 import type {
   AuthenticationResult,
   BaseItem,
+  DisplayPreferences,
   ItemsResponse,
   PublicSystemInfo,
   QuickConnectResult,
@@ -12,7 +14,12 @@ import type {
 } from './types';
 
 export const CLIENT_NAME = 'Self-Shelf';
-export const CLIENT_VERSION = Application.nativeApplicationVersion ?? '1.0.0';
+/**
+ * The installed binary's version on a device. The browser has no binary to
+ * ask, so the web build reads the `version` from `app.json` it was built with.
+ */
+export const CLIENT_VERSION =
+  Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? 'unknown';
 
 export class JellyfinError extends Error {
   constructor(
@@ -330,6 +337,35 @@ export function serverProgressPercent(item: BaseItem): number {
   if (item.UserData?.Played) return 1;
   if (!ticks) return 0;
   return Math.max(0, Math.min(1, ticks / PROGRESS_SCALE_TICKS));
+}
+
+/**
+ * The `client` that Self-Shelf files its data under in display preferences.
+ * It's a storage key, not a display name: changing it would leave every synced
+ * bookmark behind under the old one.
+ */
+const PREFS_CLIENT = 'self-shelf';
+
+/**
+ * Jellyfin has no bookmarks either, but display preferences give each user a
+ * free-form string map per item and client, which other clients already use
+ * for their own settings. Reading an item the server has never stored anything
+ * for returns defaults with an empty map.
+ */
+export function getItemPrefs(session: Session, itemId: string, signal?: AbortSignal) {
+  return request<DisplayPreferences>(session, `/DisplayPreferences/${itemId}`, {
+    signal,
+    query: { userId: session.userId, client: PREFS_CLIENT },
+  });
+}
+
+/** Saving replaces the whole record, so send back what `getItemPrefs` returned, edited. */
+export function setItemPrefs(session: Session, itemId: string, prefs: DisplayPreferences) {
+  return request<unknown>(session, `/DisplayPreferences/${itemId}`, {
+    method: 'POST',
+    query: { userId: session.userId, client: PREFS_CLIENT },
+    body: prefs,
+  });
 }
 
 /* ------------------------------------------------------------------ */

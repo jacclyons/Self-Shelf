@@ -13,6 +13,11 @@ export interface ProgressRow {
   synced_at: number;
 }
 
+/**
+ * Bookmarks and highlights sync with the server, so a deleted one stays
+ * behind as a tombstone (`deleted = 1`) until the deletion has reached every
+ * device. `synced_at` trails `updated_at` while a change is still to be pushed.
+ */
 export interface BookmarkRow {
   id: string;
   item_id: string;
@@ -21,7 +26,16 @@ export interface BookmarkRow {
   excerpt: string | null;
   percent: number;
   created_at: number;
+  updated_at: number;
+  deleted: number;
+  synced_at: number;
 }
+
+/** What the reader supplies for a new bookmark; the store fills in the rest. */
+export type NewBookmark = Pick<
+  BookmarkRow,
+  'id' | 'item_id' | 'location' | 'label' | 'excerpt' | 'percent'
+>;
 
 export interface HighlightRow {
   id: string;
@@ -32,7 +46,23 @@ export interface HighlightRow {
   color: string;
   percent: number;
   created_at: number;
+  updated_at: number;
+  deleted: number;
+  synced_at: number;
 }
+
+/** What the reader supplies for a new highlight; the store fills in the rest. */
+export type NewHighlight = Pick<
+  HighlightRow,
+  'id' | 'item_id' | 'location' | 'text' | 'note' | 'color' | 'percent'
+>;
+
+/** The tables that sync with the server, and the rows each one holds. */
+export interface AnnotationRows {
+  bookmarks: BookmarkRow;
+  highlights: HighlightRow;
+}
+export type AnnotationTable = keyof AnnotationRows;
 
 export interface DownloadRow {
   item_id: string;

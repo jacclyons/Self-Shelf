@@ -88,6 +88,18 @@ export interface QuickConnectResult {
 }
 
 /**
+ * Jellyfin's per-user, per-item, per-client display preferences. Only
+ * `CustomPrefs` matters here; the rest is carried through untouched, because a
+ * save replaces the whole record.
+ */
+export interface DisplayPreferences {
+  Id?: string | null;
+  Client?: string | null;
+  CustomPrefs?: Record<string, string | null> | null;
+  [field: string]: unknown;
+}
+
+/**
  * Every extension Jellyfin's `Book` type recognises. Book support is built into
  * the server from Jellyfin 12; older servers get the same list from the
  * Bookshelf plugin.

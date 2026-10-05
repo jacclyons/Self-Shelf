@@ -1,12 +1,25 @@
 import type {
+  AnnotationRows,
+  AnnotationTable,
   BookmarkRow,
   DownloadRow,
   HighlightRow,
   LocalBookRow,
+  NewBookmark,
+  NewHighlight,
   ProgressRow,
 } from './rows';
 
-export type { BookmarkRow, DownloadRow, HighlightRow, LocalBookRow, ProgressRow };
+export type {
+  AnnotationTable,
+  BookmarkRow,
+  DownloadRow,
+  HighlightRow,
+  LocalBookRow,
+  NewBookmark,
+  NewHighlight,
+  ProgressRow,
+};
 
 /**
  * Browser twin of `db.ts`.
@@ -136,6 +149,13 @@ export function initDatabase(): Promise<void> {
     idb = await openIdb();
     if (!idb) return; // Memory-only: the app works, nothing survives a reload.
     Object.assign(tables, await readAll(idb));
+    // Annotations saved before sync lack its bookkeeping. They count as last
+    // changed when they were made, and as not yet on the server.
+    for (const row of [...tables.bookmarks, ...tables.highlights]) {
+      row.updated_at ??= row.created_at;
+      row.deleted ??= 0;
+      row.synced_at ??= 0;
+    }
   })();
   return opening;
 }
@@ -190,14 +210,19 @@ export function pendingSync(): ProgressRow[] {
   return tables.progress.filter((row) => row.synced_at < row.updated_at);
 }
 
-/** Adopts a newer server-side position (e.g. read on another device). */
+/**
+ * Adopts a newer server-side position (e.g. read on another device). The
+ * server has only a percentage, so any local CFI is dropped: it marks the older
+ * place, and the reader would reopen there. Without one the reader resumes
+ * from the percentage.
+ */
 export function mergeServerProgress(itemId: string, percent: number, finished: boolean) {
   const local = getProgress(itemId);
   if (local && local.percent >= percent - 0.001) return;
 
   const now = Date.now();
   if (local) {
-    // The server has no CFI to give us, so the local one is left in place.
+    local.location = null;
     local.percent = percent;
     local.finished = finished ? 1 : 0;
     local.updated_at = now;
@@ -224,18 +249,30 @@ export function clearProgress(itemId: string) {
 
 export function listBookmarks(itemId: string): BookmarkRow[] {
   return tables.bookmarks
-    .filter((row) => row.item_id === itemId)
+    .filter((row) => row.item_id === itemId && !row.deleted)
     .sort((a, b) => a.percent - b.percent);
 }
 
-export function addBookmark(row: Omit<BookmarkRow, 'created_at'>) {
+export function addBookmark(row: NewBookmark) {
+  const now = Date.now();
   tables.bookmarks = tables.bookmarks.filter((existing) => existing.id !== row.id);
-  tables.bookmarks.push({ ...row, created_at: Date.now() });
+  tables.bookmarks.push({ ...row, created_at: now, updated_at: now, deleted: 0, synced_at: 0 });
   touch('bookmarks');
 }
 
+/** Leaves a tombstone, so the deletion reaches the server and other devices. */
 export function removeBookmark(id: string) {
-  tables.bookmarks = tables.bookmarks.filter((row) => row.id !== id);
+  const row = tables.bookmarks.find((existing) => existing.id === id);
+  if (!row) return;
+  row.deleted = 1;
+  row.updated_at = Date.now();
+  touch('bookmarks');
+}
+
+/** Takes on the server's version of a bookmark, which is already in sync by definition. */
+export function adoptBookmark(row: Omit<BookmarkRow, 'synced_at'>) {
+  tables.bookmarks = tables.bookmarks.filter((existing) => existing.id !== row.id);
+  tables.bookmarks.push({ ...row, deleted: row.deleted ? 1 : 0, synced_at: row.updated_at });
   touch('bookmarks');
 }
 
@@ -243,18 +280,87 @@ export function removeBookmark(id: string) {
 
 export function listHighlights(itemId: string): HighlightRow[] {
   return tables.highlights
-    .filter((row) => row.item_id === itemId)
+    .filter((row) => row.item_id === itemId && !row.deleted)
     .sort((a, b) => a.percent - b.percent);
 }
 
-export function addHighlight(row: Omit<HighlightRow, 'created_at'>) {
+export function addHighlight(row: NewHighlight) {
+  const now = Date.now();
   tables.highlights = tables.highlights.filter((existing) => existing.id !== row.id);
-  tables.highlights.push({ ...row, created_at: Date.now() });
+  tables.highlights.push({ ...row, created_at: now, updated_at: now, deleted: 0, synced_at: 0 });
   touch('highlights');
 }
 
+/** Leaves a tombstone, so the deletion reaches the server and other devices. */
 export function removeHighlight(id: string) {
-  tables.highlights = tables.highlights.filter((row) => row.id !== id);
+  const row = tables.highlights.find((existing) => existing.id === id);
+  if (!row) return;
+  row.deleted = 1;
+  row.updated_at = Date.now();
+  touch('highlights');
+}
+
+/** Takes on the server's version of a highlight, which is already in sync by definition. */
+export function adoptHighlight(row: Omit<HighlightRow, 'synced_at'>) {
+  tables.highlights = tables.highlights.filter((existing) => existing.id !== row.id);
+  tables.highlights.push({ ...row, deleted: row.deleted ? 1 : 0, synced_at: row.updated_at });
+  touch('highlights');
+}
+
+/* ------------------------------ annotation sync ----------------------------- */
+
+/**
+ * Every row for a book, tombstones included, for merging with the server's
+ * copy. They're copies, as SQLite's would be: removing an annotation edits its
+ * row in place, and a sync holding the live row would then think the edit was
+ * saved.
+ */
+export function listAnnotationRecords<T extends AnnotationTable>(
+  table: T,
+  itemId: string,
+): AnnotationRows[T][] {
+  const rows = tables[table] as AnnotationRows[T][];
+  return rows.filter((row) => row.item_id === itemId).map((row) => ({ ...row }));
+}
+
+/** Deletes outright, for books that never sync (the ones in the Files folder). */
+export function purgeAnnotation(table: AnnotationTable, id: string) {
+  if (table === 'bookmarks') tables.bookmarks = tables.bookmarks.filter((row) => row.id !== id);
+  else tables.highlights = tables.highlights.filter((row) => row.id !== id);
+  touch(table);
+}
+
+/**
+ * Records that the server now holds these versions. A row changed again while
+ * the save was in flight has a newer `updated_at`, so it stays pending.
+ */
+export function markAnnotationsSynced(
+  table: AnnotationTable,
+  rows: { id: string; updated_at: number }[],
+) {
+  const current: { id: string; updated_at: number; synced_at: number }[] = tables[table];
+  for (const synced of rows) {
+    const row = current.find((existing) => existing.id === synced.id);
+    if (row && row.updated_at === synced.updated_at) row.synced_at = row.updated_at;
+  }
+  touch(table);
+}
+
+/** Books with bookmark or highlight changes the server hasn't seen yet. */
+export function pendingAnnotationItems(): string[] {
+  const pending = [...tables.bookmarks, ...tables.highlights].filter(
+    (row) => row.synced_at < row.updated_at,
+  );
+  return [...new Set(pending.map((row) => row.item_id))];
+}
+
+/** Forgets deletions old enough that the server has stopped carrying them too. */
+export function dropAnnotationTombstones(itemId: string, before: number) {
+  const expired = (row: { item_id: string; deleted: number; updated_at: number }) =>
+    row.item_id === itemId && !!row.deleted && row.updated_at < before;
+  tables.bookmarks = tables.bookmarks.filter((row) => !expired(row));
+  tables.highlights = tables.highlights.filter((row) => !expired(row));
+  touch('bookmarks');
   touch('highlights');
 }
 

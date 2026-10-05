@@ -56,6 +56,16 @@ public/       static marketing/support site (about.html, support.html, site/)
   `db.web.ts` keeps the data in memory, persists it to IndexedDB, and hydrates before the app mounts.
   It avoids SQLite on web because that needs the COOP/COEP headers. Reading progress is pushed up to
   Jellyfin when possible (the flush on foreground in `api/hooks.ts`).
+- **Bookmark and highlight sync.** Jellyfin has no annotations API, so each book's bookmarks and
+  highlights are JSON strings in that book's display preferences (`/DisplayPreferences/{itemId}`,
+  client `self-shelf`, keys `bookmarks` and `highlights`). A save replaces the whole record, so one
+  pass per book handles both kinds. The merge goes record by record, and the latest change wins. A
+  deleted one stays behind as a tombstone (`deleted = 1`) for 180 days so other devices learn about
+  it. The format and merge are in `api/annotations.ts`; the sync runs from `useAnnotations` (on
+  open, on foreground and after each change) and from `useProgressSync`. The reader redraws
+  highlights from the list, so ones synced while a book is open appear without reopening it. Don't
+  rename the `self-shelf` client or the keys: they're storage keys, and changing them strands
+  everyone's synced annotations.
 - **Reader engine.** One HTML file plus vendored libraries. The libraries are stored as `.jstxt` so
   Metro treats them as assets (`metro.config.js` adds html, jstxt and wasm). On native, the engine is
   copied to `Documents/.jellyshelf/engine/` and loaded in a WebView over `file://`. On web, it's an

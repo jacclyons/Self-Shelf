@@ -20,7 +20,7 @@
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -47,7 +47,6 @@ import { HalftoneShade } from './Halftone';
 // animated `points` never reaches the native view; a `Path`'s `d` does.
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 import { useReduceMotion } from './motion';
-import { Press } from './Press';
 import { Shelf } from './Shelf';
 import { serif, useTheme } from './theme';
 
@@ -78,6 +77,9 @@ const RUBBER = 0.3;
 /** How far a flick carries, in books per unit of velocity. */
 const FLING = 0.15;
 
+/** How far a finger can wander and still count as a tap rather than a swipe. */
+const TAP_SLOP = 10;
+
 function clamp(value: number, min: number, max: number): number {
   'worklet';
   return Math.min(max, Math.max(min, value));
@@ -88,6 +90,27 @@ function rubberBand(value: number, min: number, max: number): number {
   if (value < min) return min - (min - value) * RUBBER;
   if (value > max) return max + (value - max) * RUBBER;
   return value;
+}
+
+/**
+ * Where the book `d` places from the centre stands once the shelf has
+ * settled: its left edge, measured from the middle of the shelf, and width.
+ */
+function slot(d: number, coverWidth: number): { left: number; width: number } {
+  if (d === 0) return { left: -coverWidth / 2, width: coverWidth };
+  if (d < 0) return { left: d * PITCH - coverWidth / 2, width: SPINE };
+  return { left: d * PITCH + coverWidth / 2 - SPINE, width: SPINE };
+}
+
+/**
+ * The inverse of `slot`: which book a point `dx` from the middle of the
+ * settled shelf lands on. The gap on the cover's side of each spine counts as
+ * part of it, so a tap between two books still picks one.
+ */
+function slotAt(dx: number, coverWidth: number): number {
+  const beyond = Math.abs(dx) - coverWidth / 2;
+  if (beyond <= 0) return 0;
+  return Math.sign(dx) * Math.ceil(beyond / PITCH);
 }
 
 interface ShelfCarouselProps {
@@ -115,6 +138,9 @@ export function ShelfCarousel({ items, session, onNearEnd }: ShelfCarouselProps)
   // run of key presses steps one book each rather than re-rounding the turn.
   const target = useSharedValue(0);
   const [center, setCenter] = useState(0);
+  // Taps are placed against the middle of the shelf, which is only the middle
+  // of the window when nothing caps the content column.
+  const shelfWidth = useRef(width);
 
   // A filter change can leave the centre past the end of the new list.
   useEffect(() => {
@@ -215,9 +241,45 @@ export function ShelfCarousel({ items, session, onNearEnd }: ShelfCarouselProps)
           const projected = position.value - (event.velocityX / coverWidth) * FLING;
           target.value = clamp(Math.round(projected), 0, last);
           position.value = withSpring(target.value, SNAP);
+        })
+        .onFinalize((_event, success) => {
+          // A touch that never became a drag (a tap, most often) still stopped
+          // the spring in `onBegin`, so finish the turn it interrupted rather
+          // than leave a book standing half-open.
+          if (!success && position.value !== target.value) {
+            position.value = withSpring(target.value, SNAP);
+          }
         }),
     [coverWidth, dragStart, last, position, target],
   );
+
+  // Taps belong to the gesture handler too, raced against the pan, so a swipe
+  // can never also land as a tap: whichever claims the touch first cancels the
+  // other. A Pressable can't take part in that race; it sits in React
+  // Native's own touch system, and would open the book the swipe began on.
+  const tap = useMemo(
+    () =>
+      Gesture.Tap()
+        .maxDistance(TAP_SLOP)
+        .runOnJS(true)
+        .onEnd((event, success) => {
+          if (!success) return;
+          const d = slotAt(event.x - shelfWidth.current / 2, coverWidth);
+          const item = items[center + d];
+          // Past either end of the shelf there's nothing to tap.
+          if (!item) return;
+          if (d === 0) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            open(item);
+          } else {
+            Haptics.selectionAsync();
+            goTo(center + d);
+          }
+        }),
+    [center, coverWidth, goTo, items, open],
+  );
+
+  const gesture = useMemo(() => Gesture.Race(pan, tap), [pan, tap]);
 
   if (!items.length) return null;
 
@@ -236,8 +298,13 @@ export function ShelfCarousel({ items, session, onNearEnd }: ShelfCarouselProps)
 
   return (
     <View style={{ flex: 1, justifyContent: 'center' }}>
-      <GestureDetector gesture={pan}>
-        <View style={{ height: coverHeight }}>
+      <GestureDetector gesture={gesture}>
+        <View
+          style={{ height: coverHeight }}
+          onLayout={(event) => {
+            shelfWidth.current = event.nativeEvent.layout.width;
+          }}
+        >
           {/* The books, laid out from a centred origin so the maths can stay signed. */}
           <View style={{ height: coverHeight, alignItems: 'center' }}>
             <View style={{ width: 0, height: coverHeight, overflow: 'visible' }}>
@@ -261,38 +328,31 @@ export function ShelfCarousel({ items, session, onNearEnd }: ShelfCarouselProps)
             </View>
 
             {/*
-              Taps go to a flat overlay rather than the rotated faces: iOS
-              won't deliver a touch to a child outside its parent's bounds,
-              and every spine hangs outside its book's box. The overlay is laid
-              out for the settled state, which is the only time anyone taps.
+              Screen readers can't see the turned faces, so each book gets a
+              flat stand-in laid out for the settled shelf. Fingers don't use
+              these: a plain view has no touch handling of its own, so touches
+              pass up to the tap above.
             */}
             <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
               {visible.map((item, offset) => {
                 const d = first + offset - center;
-                const left =
-                  d === 0
-                    ? -coverWidth / 2
-                    : d < 0
-                      ? d * PITCH - coverWidth / 2
-                      : d * PITCH + coverWidth / 2 - SPINE;
+                const { left, width: slotWidth } = slot(d, coverWidth);
                 return (
-                  <Press
+                  <View
                     key={item.Id}
-                    haptic={d === 0 ? 'medium' : 'selection'}
-                    scaleTo={1}
+                    accessible
+                    role="button"
                     aria-label={item.Name ?? 'Book'}
-                    onPress={() => (d === 0 ? open(item) : goTo(center + d))}
+                    onAccessibilityTap={() => (d === 0 ? open(item) : goTo(center + d))}
                     style={{
                       position: 'absolute',
                       top: 0,
                       left: '50%',
                       marginLeft: left,
-                      width: d === 0 ? coverWidth : SPINE,
+                      width: slotWidth,
                       height: coverHeight,
                     }}
-                  >
-                    <View />
-                  </Press>
+                  />
                 );
               })}
             </View>

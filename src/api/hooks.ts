@@ -1,27 +1,47 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { showAlert } from '@/lib/alert';
 import { isLocalId, localItem, localItems, scanLocalBooks } from '@/lib/localBooks';
 import { useAuth } from '@/state/auth';
 import {
+  addBookmark as storeBookmark,
+  addHighlight as storeHighlight,
+  adoptBookmark,
+  adoptHighlight,
+  dropAnnotationTombstones,
   getAllProgress,
+  listAnnotationRecords,
+  listBookmarks,
+  listHighlights,
+  markAnnotationsSynced,
   markSynced,
   mergeServerProgress,
+  pendingAnnotationItems,
   pendingSync,
+  purgeAnnotation,
+  removeBookmark as tombstoneBookmark,
+  removeHighlight as tombstoneHighlight,
   saveProgress,
   setLocalFavorite,
+  type BookmarkRow,
+  type HighlightRow,
+  type NewBookmark,
+  type NewHighlight,
 } from '@/state/db';
 
+import { BOOKMARKS, HIGHLIGHTS, reconcile, tombstoneCutoff } from './annotations';
 import {
   getBookLibraries,
   getBooks,
   getCurrentUser,
   getGenres,
+  getItemPrefs,
   pushProgress,
   serverProgressPercent,
   setFavorite,
+  setItemPrefs,
   setPlayed,
   type ItemQuery,
   type Session,
@@ -274,8 +294,9 @@ export function useToggleFinished() {
 }
 
 /**
- * Flushes locally-recorded reading positions to Jellyfin. Runs on foreground
- * and after the reader closes; failures are simply retried next time.
+ * Flushes locally-recorded reading positions, bookmarks and highlights to Jellyfin.
+ * Runs on foreground and after the reader closes; failures are simply retried
+ * next time.
  */
 export function useProgressSync() {
   const { session } = useAuth();
@@ -294,6 +315,14 @@ export function useProgressSync() {
         break;
       }
     }
+    for (const itemId of pendingAnnotationItems()) {
+      if (isLocalId(itemId)) continue;
+      try {
+        await syncAnnotations(session, itemId);
+      } catch {
+        break;
+      }
+    }
   }, [session]);
 
   useEffect(() => {
@@ -305,6 +334,138 @@ export function useProgressSync() {
   }, [flush]);
 
   return flush;
+}
+
+/**
+ * One book's bookmarks and highlights, kept in step with the server. They come
+ * from the local store straight away, then merge with the server's copy when
+ * the book opens and whenever the app returns to the foreground, so ones made
+ * on another device turn up without reopening the book. Each change is pushed
+ * as it's made; if that fails it stays pending for `useProgressSync` to retry.
+ */
+export function useAnnotations(itemId: string | undefined) {
+  const { session } = useAuth();
+  const [bookmarks, setBookmarks] = useState<BookmarkRow[]>(() =>
+    itemId ? listBookmarks(itemId) : [],
+  );
+  const [highlights, setHighlights] = useState<HighlightRow[]>(() =>
+    itemId ? listHighlights(itemId) : [],
+  );
+  // A book in the Files folder never reaches the server, so it has no use for
+  // tombstones and is never synced.
+  const local = !!itemId && isLocalId(itemId);
+
+  const refresh = useCallback(() => {
+    setBookmarks(itemId ? listBookmarks(itemId) : []);
+    setHighlights(itemId ? listHighlights(itemId) : []);
+  }, [itemId]);
+
+  const sync = useCallback(async () => {
+    if (!session || !itemId || local) return;
+    try {
+      await syncAnnotations(session, itemId);
+    } catch {
+      // Offline, most likely. The change stays pending, and a pass that got as
+      // far as reading the server's copy has still taken on what was new there.
+    }
+    refresh();
+  }, [itemId, local, refresh, session]);
+
+  useEffect(() => {
+    refresh();
+    void sync();
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void sync();
+    });
+    return () => sub.remove();
+  }, [refresh, sync]);
+
+  const addBookmark = useCallback(
+    (bookmark: NewBookmark) => {
+      storeBookmark(bookmark);
+      refresh();
+      void sync();
+    },
+    [refresh, sync],
+  );
+
+  const removeBookmark = useCallback(
+    (bookmarkId: string) => {
+      if (local) purgeAnnotation('bookmarks', bookmarkId);
+      else tombstoneBookmark(bookmarkId);
+      refresh();
+      void sync();
+    },
+    [local, refresh, sync],
+  );
+
+  const addHighlight = useCallback(
+    (highlight: NewHighlight) => {
+      storeHighlight(highlight);
+      refresh();
+      void sync();
+    },
+    [refresh, sync],
+  );
+
+  const removeHighlight = useCallback(
+    (highlightId: string) => {
+      if (local) purgeAnnotation('highlights', highlightId);
+      else tombstoneHighlight(highlightId);
+      refresh();
+      void sync();
+    },
+    [local, refresh, sync],
+  );
+
+  return { bookmarks, highlights, addBookmark, removeBookmark, addHighlight, removeHighlight };
+}
+
+/**
+ * Passes in flight, per book. Passes for the same book run one after another:
+ * two at once would each read the same server copy, and whichever saved last
+ * would drop the other's change.
+ */
+const annotationPasses = new Map<string, Promise<void>>();
+
+function syncAnnotations(session: Session, itemId: string): Promise<void> {
+  const pass = (annotationPasses.get(itemId) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(() => annotationPass(session, itemId));
+  annotationPasses.set(itemId, pass);
+  const settle = () => {
+    if (annotationPasses.get(itemId) === pass) annotationPasses.delete(itemId);
+  };
+  pass.then(settle, settle);
+  return pass;
+}
+
+/**
+ * Merges one book's bookmarks and highlights with the server's copy, then
+ * brings whichever side is behind up to date. Both kinds share one record on
+ * the server and a save replaces all of it, so they go up together.
+ */
+async function annotationPass(session: Session, itemId: string) {
+  const prefs = await getItemPrefs(session, itemId);
+  const now = Date.now();
+
+  // Nothing awaits between reading the local rows and adopting the server's,
+  // so a tap in the reader can't land in between and be overwritten.
+  const stored = prefs.CustomPrefs;
+  const bookmarks = reconcile(BOOKMARKS, stored, listAnnotationRecords('bookmarks', itemId), now);
+  const highlights = reconcile(HIGHLIGHTS, stored, listAnnotationRecords('highlights', itemId), now);
+  for (const record of bookmarks?.adopt ?? []) adoptBookmark({ ...record, item_id: itemId });
+  for (const record of highlights?.adopt ?? []) adoptHighlight({ ...record, item_id: itemId });
+
+  if (bookmarks?.push || highlights?.push) {
+    const custom = { ...stored };
+    if (bookmarks?.push) custom[BOOKMARKS.pref] = bookmarks.value;
+    if (highlights?.push) custom[HIGHLIGHTS.pref] = highlights.value;
+    await setItemPrefs(session, itemId, { ...prefs, CustomPrefs: custom });
+  }
+  if (bookmarks) markAnnotationsSynced('bookmarks', bookmarks.merged);
+  if (highlights) markAnnotationsSynced('highlights', highlights.merged);
+  dropAnnotationTombstones(itemId, tombstoneCutoff(now));
 }
 
 export type { Session };

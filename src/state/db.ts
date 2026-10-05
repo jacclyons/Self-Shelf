@@ -1,19 +1,32 @@
 import * as SQLite from 'expo-sqlite';
 
 import type {
+  AnnotationRows,
+  AnnotationTable,
   BookmarkRow,
   DownloadRow,
   HighlightRow,
   LocalBookRow,
+  NewBookmark,
+  NewHighlight,
   ProgressRow,
 } from './rows';
 
-export type { BookmarkRow, DownloadRow, HighlightRow, LocalBookRow, ProgressRow };
+export type {
+  AnnotationTable,
+  BookmarkRow,
+  DownloadRow,
+  HighlightRow,
+  LocalBookRow,
+  NewBookmark,
+  NewHighlight,
+  ProgressRow,
+};
 
 /**
  * Local-first store. Everything the reader needs (position, bookmarks,
  * highlights, prefs) lives here so the app opens instantly and works offline;
- * progress is mirrored up to Jellyfin opportunistically.
+ * progress, bookmarks and highlights are mirrored up to Jellyfin opportunistically.
  */
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -34,7 +47,10 @@ CREATE TABLE IF NOT EXISTS bookmarks (
   label      TEXT,
   excerpt    TEXT,
   percent    REAL NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  deleted    INTEGER NOT NULL DEFAULT 0,
+  synced_at  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS bookmarks_item ON bookmarks(item_id);
 
@@ -46,7 +62,10 @@ CREATE TABLE IF NOT EXISTS highlights (
   note       TEXT,
   color      TEXT NOT NULL DEFAULT 'yellow',
   percent    REAL NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  deleted    INTEGER NOT NULL DEFAULT 0,
+  synced_at  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS highlights_item ON highlights(item_id);
 
@@ -76,6 +95,34 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 `;
 
+/**
+ * Columns added after a table first shipped. `CREATE TABLE IF NOT EXISTS`
+ * leaves an existing table as it is, so databases from earlier builds pick
+ * them up here instead.
+ */
+const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
+  ['bookmarks', 'updated_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ['bookmarks', 'deleted', 'INTEGER NOT NULL DEFAULT 0'],
+  ['bookmarks', 'synced_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ['highlights', 'updated_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ['highlights', 'deleted', 'INTEGER NOT NULL DEFAULT 0'],
+  ['highlights', 'synced_at', 'INTEGER NOT NULL DEFAULT 0'],
+];
+
+const ANNOTATION_TABLES: AnnotationTable[] = ['bookmarks', 'highlights'];
+
+function addMissingColumns(target: SQLite.SQLiteDatabase) {
+  for (const [table, column, definition] of ADDED_COLUMNS) {
+    const columns = target.getAllSync<{ name: string }>(`PRAGMA table_info(${table})`);
+    if (columns.some((existing) => existing.name === column)) continue;
+    target.execSync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+  // Annotations made before sync count as last changed when they were made.
+  for (const table of ANNOTATION_TABLES) {
+    target.execSync(`UPDATE ${table} SET updated_at = created_at WHERE updated_at = 0`);
+  }
+}
+
 let handle: SQLite.SQLiteDatabase | null = null;
 
 /**
@@ -103,6 +150,7 @@ export function initDatabase(): Promise<void> {
     // Pre-rename filename, kept so existing reading positions carry over.
     handle = SQLite.openDatabaseSync('jellyshelf.db');
     handle.execSync(SCHEMA);
+    addMissingColumns(handle);
   })();
   return opening;
 }
@@ -148,7 +196,12 @@ export function pendingSync(): ProgressRow[] {
   return db.getAllSync<ProgressRow>('SELECT * FROM progress WHERE synced_at < updated_at');
 }
 
-/** Adopts a newer server-side position (e.g. read on another device). */
+/**
+ * Adopts a newer server-side position (e.g. read on another device). The
+ * server has only a percentage, so any local CFI is dropped: it marks the older
+ * place, and the reader would reopen there. Without one the reader resumes
+ * from the percentage.
+ */
 export function mergeServerProgress(itemId: string, percent: number, finished: boolean) {
   const local = getProgress(itemId);
   if (local && local.percent >= percent - 0.001) return;
@@ -156,7 +209,7 @@ export function mergeServerProgress(itemId: string, percent: number, finished: b
     `INSERT INTO progress (item_id, percent, location, finished, updated_at, synced_at)
      VALUES (?, ?, NULL, ?, ?, ?)
      ON CONFLICT(item_id) DO UPDATE SET
-       percent = excluded.percent, finished = excluded.finished,
+       percent = excluded.percent, location = NULL, finished = excluded.finished,
        updated_at = excluded.updated_at, synced_at = excluded.synced_at`,
     itemId,
     percent,
@@ -174,42 +227,67 @@ export function clearProgress(itemId: string) {
 
 export function listBookmarks(itemId: string): BookmarkRow[] {
   return db.getAllSync<BookmarkRow>(
-    'SELECT * FROM bookmarks WHERE item_id = ? ORDER BY percent ASC',
+    'SELECT * FROM bookmarks WHERE item_id = ? AND deleted = 0 ORDER BY percent ASC',
     itemId,
   );
 }
 
-export function addBookmark(row: Omit<BookmarkRow, 'created_at'>) {
+export function addBookmark(row: NewBookmark) {
+  const now = Date.now();
   db.runSync(
-    `INSERT OR REPLACE INTO bookmarks (id, item_id, location, label, excerpt, percent, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO bookmarks
+       (id, item_id, location, label, excerpt, percent, created_at, updated_at, deleted, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
     row.id,
     row.item_id,
     row.location,
     row.label,
     row.excerpt,
     row.percent,
-    Date.now(),
+    now,
+    now,
   );
 }
 
+/** Leaves a tombstone, so the deletion reaches the server and other devices. */
 export function removeBookmark(id: string) {
-  db.runSync('DELETE FROM bookmarks WHERE id = ?', id);
+  db.runSync('UPDATE bookmarks SET deleted = 1, updated_at = ? WHERE id = ?', Date.now(), id);
+}
+
+/** Takes on the server's version of a bookmark, which is already in sync by definition. */
+export function adoptBookmark(row: Omit<BookmarkRow, 'synced_at'>) {
+  db.runSync(
+    `INSERT OR REPLACE INTO bookmarks
+       (id, item_id, location, label, excerpt, percent, created_at, updated_at, deleted, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    row.id,
+    row.item_id,
+    row.location,
+    row.label,
+    row.excerpt,
+    row.percent,
+    row.created_at,
+    row.updated_at,
+    row.deleted ? 1 : 0,
+    row.updated_at,
+  );
 }
 
 /* ------------------------------- highlights ------------------------------ */
 
 export function listHighlights(itemId: string): HighlightRow[] {
   return db.getAllSync<HighlightRow>(
-    'SELECT * FROM highlights WHERE item_id = ? ORDER BY percent ASC',
+    'SELECT * FROM highlights WHERE item_id = ? AND deleted = 0 ORDER BY percent ASC',
     itemId,
   );
 }
 
-export function addHighlight(row: Omit<HighlightRow, 'created_at'>) {
+export function addHighlight(row: NewHighlight) {
+  const now = Date.now();
   db.runSync(
-    `INSERT OR REPLACE INTO highlights (id, item_id, location, text, note, color, percent, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO highlights
+       (id, item_id, location, text, note, color, percent, created_at, updated_at, deleted, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
     row.id,
     row.item_id,
     row.location,
@@ -217,12 +295,88 @@ export function addHighlight(row: Omit<HighlightRow, 'created_at'>) {
     row.note,
     row.color,
     row.percent,
-    Date.now(),
+    now,
+    now,
   );
 }
 
+/** Leaves a tombstone, so the deletion reaches the server and other devices. */
 export function removeHighlight(id: string) {
-  db.runSync('DELETE FROM highlights WHERE id = ?', id);
+  db.runSync('UPDATE highlights SET deleted = 1, updated_at = ? WHERE id = ?', Date.now(), id);
+}
+
+/** Takes on the server's version of a highlight, which is already in sync by definition. */
+export function adoptHighlight(row: Omit<HighlightRow, 'synced_at'>) {
+  db.runSync(
+    `INSERT OR REPLACE INTO highlights
+       (id, item_id, location, text, note, color, percent, created_at, updated_at, deleted, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    row.id,
+    row.item_id,
+    row.location,
+    row.text,
+    row.note,
+    row.color,
+    row.percent,
+    row.created_at,
+    row.updated_at,
+    row.deleted ? 1 : 0,
+    row.updated_at,
+  );
+}
+
+/* ------------------------------ annotation sync ----------------------------- */
+
+/** Every row for a book, tombstones included, for merging with the server's copy. */
+export function listAnnotationRecords<T extends AnnotationTable>(
+  table: T,
+  itemId: string,
+): AnnotationRows[T][] {
+  return db.getAllSync<AnnotationRows[T]>(`SELECT * FROM ${table} WHERE item_id = ?`, itemId);
+}
+
+/** Deletes outright, for books that never sync (the ones in the Files folder). */
+export function purgeAnnotation(table: AnnotationTable, id: string) {
+  db.runSync(`DELETE FROM ${table} WHERE id = ?`, id);
+}
+
+/**
+ * Records that the server now holds these versions. A row changed again while
+ * the save was in flight has a newer `updated_at`, so it stays pending.
+ */
+export function markAnnotationsSynced(
+  table: AnnotationTable,
+  rows: { id: string; updated_at: number }[],
+) {
+  for (const row of rows) {
+    db.runSync(
+      `UPDATE ${table} SET synced_at = updated_at WHERE id = ? AND updated_at = ?`,
+      row.id,
+      row.updated_at,
+    );
+  }
+}
+
+/** Books with bookmark or highlight changes the server hasn't seen yet. */
+export function pendingAnnotationItems(): string[] {
+  return db
+    .getAllSync<{ item_id: string }>(
+      `SELECT item_id FROM bookmarks WHERE synced_at < updated_at
+       UNION
+       SELECT item_id FROM highlights WHERE synced_at < updated_at`,
+    )
+    .map((row) => row.item_id);
+}
+
+/** Forgets deletions old enough that the server has stopped carrying them too. */
+export function dropAnnotationTombstones(itemId: string, before: number) {
+  for (const table of ANNOTATION_TABLES) {
+    db.runSync(
+      `DELETE FROM ${table} WHERE item_id = ? AND deleted = 1 AND updated_at < ?`,
+      itemId,
+      before,
+    );
+  }
 }
 
 /* ------------------------------- downloads ------------------------------- */
