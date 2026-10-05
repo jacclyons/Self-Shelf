@@ -336,7 +336,7 @@ test('progress retains fraction/bytes, unknown length stays zero, and authentica
   assert.deepEqual(progress, [[0, 10], [0.2, 20]]);
 });
 
-test('engine setup shares in-flight work, retries rejection, and refreshes reader assets to version 11', async () => {
+test('engine setup shares in-flight work, retries rejection, and refreshes reader assets to version 12', async () => {
   const h = harness();
   h.kv.set('engine.version', 10);
   h.files.set(`${root}/engine/reader.html`, 10);
@@ -349,7 +349,7 @@ test('engine setup shares in-flight work, retries rejection, and refreshes reade
   const retry = h.storage.ensureReaderEngine();
   assert.notEqual(retry, first);
   assert.equal(await retry, `${root}/engine/reader.html`);
-  assert.equal(h.kv.get('engine.version'), 11);
+  assert.equal(h.kv.get('engine.version'), 12);
   assert.ok(h.assets.includes('../../assets/reader/reader.html'));
   assert.ok(h.assets.includes('../../assets/reader/comic-worker.jstxt'));
   assert.equal(h.files.has(`${root}/engine/comic-worker.js`), true);

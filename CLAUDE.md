@@ -161,7 +161,7 @@ them.
   "Self-Shelf", id 6810794371). Android is `com.jacklyons.selfshelf`, since Android package names
   can't contain hyphens. The old `com.jacklyons.jellyshelf` TestFlight app still exists: testers
   have to join the new app, and it installs alongside the old one with its own data and sign-in.
-- **Build number** is `ios.buildNumber` in `app.json` (`2` as of 2026-09-10). Bump it before every
+- **Build number** is `ios.buildNumber` in `app.json` (`5`, with version `0.4.0`, as of 2026-10-05). Bump it before every
   App Store Connect upload, or the upload fails with error 90189 "Redundant Binary Upload". Bumping
   it in Xcode alone gets undone by the next prebuild.
 - The iOS icon is now the colour mark on a light (`system-light`) background, but the other PNGs are

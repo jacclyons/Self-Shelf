@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.jacklyons.self-shelf",
       "appleTeamId": "3272AWQ475",
-      "buildNumber": "4",
+      "buildNumber": "5",
       "requireFullScreen": false,
       "infoPlist": {
         "UIBackgroundModes": [
