@@ -76,7 +76,8 @@ export default function Reader() {
 function BookReader({ id }: { id: string }) {
   const dismiss = useDismissTo(id ? `/book/${id}` : '/');
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const topInset = useSteadyTopInset(insets.top, width, height);
   // Chrome lines up with the text column rather than spanning the whole window.
   const chromeWidth = Math.min(width, maxReaderWidth);
   const { session } = useAuth();
@@ -481,7 +482,7 @@ function BookReader({ id }: { id: string }) {
             settings={settings}
             font={font}
             theme={theme}
-            insets={{ top: insets.top + IDLE_HEADER, bottom: insets.bottom + IDLE_FOOTER }}
+            insets={{ top: topInset + IDLE_HEADER, bottom: insets.bottom + IDLE_FOOTER }}
             onEvent={handleEvent}
             onSelectionAction={onSelectionAction}
           />
@@ -495,7 +496,7 @@ function BookReader({ id }: { id: string }) {
           <View style={[readerColumn, { flex: 1 }]}>
             <RibbonBookmark
               visible={chromeVisible && bookmarked}
-              length={insets.top + CHROME_HEADER + RIBBON_HANG}
+              length={topInset + CHROME_HEADER + RIBBON_HANG}
               color={theme.accent}
               dark={theme.dark}
               style={{ right: 0 }}
@@ -520,7 +521,7 @@ function BookReader({ id }: { id: string }) {
               {
                 color: theme.fg,
                 opacity: 0.4,
-                marginTop: insets.top + 4,
+                marginTop: topInset + 4,
                 maxWidth: '72%',
                 textAlign: 'center',
               },
@@ -579,7 +580,7 @@ function BookReader({ id }: { id: string }) {
             <GlassSurface
               variant="regular"
               colorScheme={theme.dark ? 'dark' : 'light'}
-              style={{ paddingTop: insets.top + 6, paddingBottom: 10 }}
+              style={{ paddingTop: topInset + 6, paddingBottom: 10 }}
             >
               <View
                 style={[
@@ -717,6 +718,23 @@ function BookReader({ id }: { id: string }) {
       ) : null}
     </View>
   );
+}
+
+/**
+ * The safe area's top inset, held steady while the controls come and go. On an
+ * iPhone without a notch (the SE) the top of the safe area is the status bar,
+ * which hides with the controls, so the live inset swings between 20 and 0 on
+ * every centre tap. The page is laid out against it, and each swing
+ * re-paginated the book and landed up to a page back, which read as the tap
+ * turning the page. This keeps the largest inset seen at the current window
+ * size; a resize (iPad multitasking) starts again from the live value.
+ */
+function useSteadyTopInset(top: number, width: number, height: number): number {
+  const [held, setHeld] = useState({ top, width, height });
+  const resized = held.width !== width || held.height !== height;
+  // Adjusting state during render, so the first layout after a change is already right.
+  if (resized || top > held.top) setHeld({ top, width, height });
+  return resized ? top : Math.max(held.top, top);
 }
 
 function footerLabel(position: ReaderPosition | null, percent: number): string {
