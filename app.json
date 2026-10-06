@@ -2,7 +2,7 @@
   "expo": {
     "name": "Self-Shelf",
     "slug": "self-shelf",
-    "version": "0.4.0",
+    "version": "1.5.0",
     "orientation": "portrait",
     "scheme": "selfshelf",
     "userInterfaceStyle": "automatic",
@@ -13,7 +13,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.jacklyons.self-shelf",
       "appleTeamId": "3272AWQ475",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "requireFullScreen": false,
       "infoPlist": {
         "UIBackgroundModes": [
